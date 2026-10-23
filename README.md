@@ -74,6 +74,14 @@ It never copies attendees, so no invites go out. It never copies its own copies 
 
 </td>
 </tr>
+<tr>
+<td colspan="2" valign="top">
+
+### ↩️ Show your main calendar as Busy at the client
+Optional, per client calendar. Your main calendar's events are added to the client calendar as plain **Busy** events, with the time and nothing else: no title, link, location or attendees. Copies of that client's own meetings are skipped, and meetings copied from other clients do show, so each client sees the time the others have booked. It needs a client calendar you can edit in Calendar.app; Outlook on the web and `.ics` link calendars are read-only.
+
+</td>
+</tr>
 </table>
 
 It also lets you **skip meetings you declined** and **skip all-day events**. It syncs **every 15 minutes** (adjustable), and Calendar.app calendars also sync about 10 seconds after a change. Settings has a **preview** that shows what the next sync would change before it changes anything.
@@ -86,6 +94,7 @@ flowchart LR
     B[".ics calendar link<br/>(subscribed)"] --> S
     C["Outlook on the web<br/>(sign in once)"] --> S
     S{{"Calendar Sync<br/>plan: add · update · remove"}} --> M["Main calendar<br/>[Calendar A] Sprint planning ▶ Join"]
+    M -. "optional: Busy, no details" .-> A
 ```
 
 Every copy ends its notes with a tag like `calsync:v1:<source id>:<occurrence id>`. The app uses it to recognise its own copies and match them to their originals, which is why a moved meeting gets updated instead of duplicated.
@@ -124,7 +133,7 @@ open "build/Calendar Sync.app"
 Allow calendar access on first launch. Then open **Settings…** from the menu bar icon:
 
 1. **General:** choose your **main calendar** (the one meetings are copied into), how many days ahead, and how often to sync.
-2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name.
+2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name. Turn on **Show my main calendar here as “Busy”** for any client that should see when you're busy.
 3. **Preview:** see what a sync would change, then let it run.
 
 > [!NOTE]
