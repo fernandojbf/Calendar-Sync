@@ -6,28 +6,50 @@ import Foundation
 /// Outlook uses:
 ///
 /// - OWA service style: `Subject`, `Start`/`End` as ISO strings, `ItemId.Id`, `IsAllDayEvent`,
-///   `IsCancelled`, `ResponseType`, `Location.DisplayName`.
+///   `IsCancelled`, `ResponseType`, `FreeBusyType`, `Location.DisplayName`, `Body.Value`.
 /// - Graph / REST style: `subject`, `start.dateTime` + `start.timeZone`, `id`, `isAllDay`,
-///   `isCancelled`, `responseStatus.response`, `onlineMeeting.joinUrl`.
+///   `isCancelled`, `responseStatus.response`, `showAs`, `onlineMeeting.joinUrl`, `body.content`.
 ///
 /// Keys are matched case-insensitively.
+///
+/// The week view usually leaves out the meeting body, and with it the join link (in Teams
+/// invites the link sits behind "Join the meeting now", so it isn't in the text preview
+/// either). `OutlookWebSource` therefore also loads each meeting in full; those responses are
+/// passed as `details` and merged into the week-view events by item id.
 public enum OutlookWebParser {
-    public static func events(fromPayloads payloads: [Data]) -> [SourceEvent] {
+    public static func events(fromPayloads payloads: [Data], details detailPayloads: [Data] = []) -> [SourceEvent] {
+        let details = self.details(fromPayloads: detailPayloads)
         var seen: Set<String> = []
         var result: [SourceEvent] = []
-        for data in payloads {
-            guard let json = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { continue }
-            collect(json) { event in
-                if seen.insert(event.key).inserted { result.append(event) }
-            }
+        forEachEvent(in: payloads) { obj in
+            guard let event = event(from: obj, detail: rawItemID(obj).flatMap { details[$0] }) else { return }
+            if seen.insert(event.key).inserted { result.append(event) }
         }
         return result.sorted { $0.start < $1.start }
     }
 
-    private static func collect(_ json: Any, _ found: (SourceEvent) -> Void) {
+    /// Outlook's own ids of the meetings in `payloads`, used to load each one in full.
+    public static func itemIDs(fromPayloads payloads: [Data]) -> [String] {
+        var seen: Set<String> = []
+        var ids: [String] = []
+        forEachEvent(in: payloads) { obj in
+            if let id = rawItemID(obj), seen.insert(id).inserted { ids.append(id) }
+        }
+        return ids
+    }
+
+    private static func forEachEvent(in payloads: [Data], _ found: (Obj) -> Void) {
+        for data in payloads {
+            guard let json = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { continue }
+            collect(json, found)
+        }
+    }
+
+    private static func collect(_ json: Any, _ found: (Obj) -> Void) {
         if let object = json as? [String: Any] {
-            if let event = event(from: Obj(object)) {
-                found(event)
+            let obj = Obj(object)
+            if event(from: obj) != nil {
+                found(obj)
                 return
             }
             for value in object.values { collect(value, found) }
@@ -36,9 +58,30 @@ public enum OutlookWebParser {
         }
     }
 
+    /// Full meetings by Outlook item id: any object with an id and a body or join link.
+    static func details(fromPayloads payloads: [Data]) -> [String: Obj] {
+        var result: [String: Obj] = [:]
+        func walk(_ json: Any) {
+            if let object = json as? [String: Any] {
+                let obj = Obj(object)
+                if let id = rawItemID(obj), obj.object("body") != nil || joinURL(obj) != nil {
+                    result[id] = obj
+                    return
+                }
+                object.values.forEach(walk)
+            } else if let array = json as? [Any] {
+                array.forEach(walk)
+            }
+        }
+        for data in payloads {
+            if let json = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) { walk(json) }
+        }
+        return result
+    }
+
     // MARK: - One event
 
-    static func event(from obj: Obj) -> SourceEvent? {
+    static func event(from obj: Obj, detail: Obj? = nil) -> SourceEvent? {
         guard let subject = obj.string("subject") ?? (obj.has("subject") ? "" : nil),
               let startField = obj.value("start"), let endField = obj.value("end"),
               let start = date(startField, fallbackZone: obj.string("startTimeZone") ?? obj.string("originalStartTimeZone")),
@@ -55,16 +98,24 @@ public enum OutlookWebParser {
             ?? "").lowercased()
         let isDeclined = response.hasPrefix("decline")
 
-        let location = obj.string("location") ?? obj.object("location")?.string("displayName")
-        let joinURL = obj.object("onlineMeeting")?.string("joinUrl")
-            ?? obj.string("onlineMeetingJoinUrl")
-            ?? obj.object("onlineMeetingInfo")?.string("joinUrl")
-            ?? obj.string("onlineMeetingUrl")
-            ?? obj.string("skypeTeamsMeetingUrl")
-        let notes = obj.string("bodyPreview") ?? obj.string("preview") ?? obj.object("body")?.string("content")
-        let meetingURL = MeetingLink.find(url: joinURL.flatMap(URL.init(string:)), location: location, notes: notes)
+        // OWA: FreeBusyType / LegacyFreeBusyStatus "OOF"; Graph: showAs "oof".
+        let showAs = (obj.string("freeBusyType") ?? obj.string("legacyFreeBusyStatus") ?? obj.string("showAs") ?? "").lowercased()
+        let isOutOfOffice = showAs == "oof" || showAs == "outofoffice"
+
+        // The full meeting, when loaded, knows more than the week view.
+        let sources = [detail, obj].compactMap { $0 }
+        func first<T>(_ read: (Obj) -> T?) -> T? {
+            for source in sources { if let value = read(source) { return value } }
+            return nil
+        }
+
+        let location = first { $0.string("location") ?? $0.object("location")?.string("displayName") }
+        let joinURL = first(joinURL)
+        let body = first(self.body)
+        let notes = body?.text ?? first { $0.string("bodyPreview") ?? $0.string("preview") }
+        let meetingURL = MeetingLink.find(url: joinURL.flatMap(URL.init(string:)), location: location, notes: body?.raw ?? notes)
             ?? joinURL.flatMap(URL.init(string:))
-            ?? MeetingLink.firstMeetingLink(in: obj.allStrings().joined(separator: " "))
+            ?? MeetingLink.firstMeetingLink(in: sources.flatMap { $0.allStrings() }.joined(separator: " "))
 
         return SourceEvent(
             key: id,
@@ -75,9 +126,35 @@ public enum OutlookWebParser {
             timeZone: nil,
             isDeclined: isDeclined,
             isCancelled: isCancelled,
+            isOutOfOffice: isOutOfOffice,
             meetingURL: meetingURL,
-            notes: notes
+            notes: notes,
+            location: location
         )
+    }
+
+    static func joinURL(_ obj: Obj) -> String? {
+        obj.object("onlineMeeting")?.string("joinUrl")
+            ?? obj.string("joinOnlineMeetingUrl")
+            ?? obj.string("onlineMeetingJoinUrl")
+            ?? obj.object("onlineMeetingInfo")?.string("joinUrl")
+            ?? obj.string("onlineMeetingUrl")
+            ?? obj.string("skypeTeamsMeetingUrl")
+    }
+
+    /// The meeting body as sent (`raw`, HTML or text) and as plain text. OWA uses
+    /// `Body.Value` + `BodyType`, Graph `body.content` + `contentType`.
+    static func body(_ obj: Obj) -> (raw: String, text: String)? {
+        guard let body = obj.object("body"), let raw = body.string("value") ?? body.string("content") else { return nil }
+        let type = (body.string("bodyType") ?? body.string("contentType") ?? "").lowercased()
+        let isHTML = type == "html" || (type.isEmpty && raw.range(of: #"<[a-zA-Z!/][^>]*>"#, options: .regularExpression) != nil)
+        let text = isHTML ? HTMLText.plainText(from: raw) : HTMLText.normalize(raw)
+        return text.isEmpty ? nil : (raw, text)
+    }
+
+    /// Outlook's own id of the item, as used to load it.
+    static func rawItemID(_ obj: Obj) -> String? {
+        obj.object("itemId")?.string("id") ?? obj.string("itemId") ?? obj.string("id")
     }
 
     /// A key that survives the meeting being moved: series id + original start for recurring

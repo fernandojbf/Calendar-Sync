@@ -9,6 +9,7 @@ struct SettingsView: View {
             GeneralTab().tabItem { Label("General", systemImage: "gearshape") }
             SourcesTab().tabItem { Label("Client calendars", systemImage: "calendar") }
             PreviewTab().tabItem { Label("Preview", systemImage: "eye") }
+            AuthorTab().tabItem { Label("Author", systemImage: "person.crop.circle") }
         }
         .frame(width: 620, height: 460)
         .onAppear { NSApp.activate(ignoringOtherApps: true) }
@@ -39,11 +40,13 @@ private struct GeneralTab: View {
             Section {
                 Stepper("Today plus the next \(settings.options.daysAhead) days",
                         value: $settings.options.daysAhead, in: 0...30)
-                Stepper("Sync every \(settings.intervalMinutes) minutes",
-                        value: $settings.intervalMinutes, in: 5...240, step: 5)
-                    .onChange(of: settings.intervalMinutes) { _, _ in controller.restartTimer() }
+                IntervalField(label: "Sync every", minutes: $settings.intervalMinutes)
                 Toggle("Skip meetings I declined", isOn: $settings.options.skipDeclined)
                 Toggle("Skip all-day events", isOn: $settings.options.skipAllDay)
+                Toggle("Skip out-of-office events", isOn: $settings.options.skipOutOfOffice)
+            } footer: {
+                Text("Each client calendar can use its own interval instead (Client calendars tab). Calendar.app calendars also sync about 10 seconds after a change.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {
@@ -145,7 +148,17 @@ private struct SourceRow: View {
                 TextField("Calendar name", text: $source.calendarName, prompt: Text("e.g. Calendar A"))
             }
             Toggle("Hide meeting names (copy as “[\(displayName)] Busy”)", isOn: $source.hideMeetingName)
+            Toggle("Copy location and description", isOn: $source.copyDetails)
+                .disabled(source.hideMeetingName)
             Toggle("Sync this calendar", isOn: $source.isEnabled)
+            Toggle("Use its own sync interval", isOn: Binding(
+                get: { source.intervalMinutes != nil },
+                set: { source.intervalMinutes = $0 ? settings.intervalMinutes : nil }))
+            if source.intervalMinutes != nil {
+                IntervalField(label: "Sync this calendar every", minutes: Binding(
+                    get: { source.intervalMinutes ?? settings.intervalMinutes },
+                    set: { source.intervalMinutes = $0 }))
+            }
             if case .eventKit(let calendarID) = source.kind {
                 let writable = controller.eventKit.calendar(id: calendarID)?.allowsContentModifications ?? false
                 Toggle("Show my main calendar here as “Busy”", isOn: $source.showBusyInClient)
@@ -180,9 +193,53 @@ private struct SourceRow: View {
                 Label("Outlook on the web (experimental)", systemImage: "globe")
             }
         } footer: {
-            Text("Copies are titled “[\(displayName)] \(source.hideMeetingName ? "Busy" : "Meeting name")” and include the meeting link when there is one."
-                 + (source.showBusyInClient ? " Your main calendar's events also appear here as “Busy”, with no other details." : ""))
-                .font(.caption).foregroundStyle(.secondary)
+            Text(footer).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var footer: String {
+        var text = "Copies are titled “[\(displayName)] \(source.hideMeetingName ? "Busy" : "Meeting name")” and include the meeting link when there is one."
+        if source.copyDetails {
+            text += source.hideMeetingName
+                ? " Location and description aren't copied while meeting names are hidden."
+                : " The location and description are copied too."
+        }
+        if source.showBusyInClient {
+            text += " Your main calendar's events also appear here as “Busy”, with no other details."
+        }
+        let minutes = SyncSchedule.interval(for: source, defaultMinutes: settings.intervalMinutes)
+        text += " Synced every \(minutes) \(minutes == 1 ? "minute" : "minutes")"
+        if case .eventKit = source.kind { text += " and about 10 seconds after a change" }
+        return text + "."
+    }
+}
+
+/// "Sync every [15] minutes": type any value, or step through common ones.
+private struct IntervalField: View {
+    let label: String
+    @Binding var minutes: Int
+
+    private static let steps = [1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720, 1440]
+
+    var body: some View {
+        LabeledContent(label) {
+            HStack(spacing: 6) {
+                TextField(label, value: $minutes, format: .number)
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 56)
+                Text(minutes == 1 ? "minute" : "minutes")
+                Stepper(label, onIncrement: {
+                    minutes = Self.steps.first { $0 > minutes } ?? SyncSchedule.maxMinutes
+                }, onDecrement: {
+                    minutes = Self.steps.last { $0 < minutes } ?? SyncSchedule.minMinutes
+                })
+                .labelsHidden()
+            }
+        }
+        .onChange(of: minutes) { _, value in
+            let clamped = min(max(value, SyncSchedule.minMinutes), SyncSchedule.maxMinutes)
+            if clamped != value { minutes = clamped }
         }
     }
 }
@@ -280,6 +337,58 @@ private struct PreviewTab: View {
             rows += busy.plan.actions.map { (action: $0, title: "Busy in \(busy.calendarName)") }
         }
         return Array(rows.enumerated())
+    }
+}
+
+// MARK: - Author
+
+private struct AuthorTab: View {
+    @Environment(\.openURL) private var openURL
+
+    private var version: String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 88, height: 88)
+            VStack(spacing: 2) {
+                Text("Calendar Sync").font(.title2.bold())
+                if let version {
+                    Text("Version \(version)").foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(spacing: 4) {
+                Text("Made by Pedro Vicente").font(.headline)
+                Link("pedrovicente.pt", destination: URL(string: "https://pedrovicente.pt")!)
+            }
+
+            Divider().frame(width: 280)
+
+            Text("If Calendar Sync saves you time, a donation helps me keep developing open source and free software.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 400)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button {
+                    openURL(URL(string: "https://revolut.me/neteinstein")!)
+                } label: {
+                    Label("Donate with Revolut", systemImage: "heart.fill")
+                }
+                Button {
+                    openURL(URL(string: "https://www.buymeacoffee.com/neteinstein")!)
+                } label: {
+                    Label("Buy me a coffee", systemImage: "cup.and.saucer.fill")
+                }
+            }
+            .controlSize(.large)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

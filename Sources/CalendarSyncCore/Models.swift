@@ -23,6 +23,11 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
     /// When on, events in the main calendar are also added to this client calendar as plain
     /// "Busy" events with no other details. Only possible for calendars that can be edited.
     public var showBusyInClient: Bool
+    /// When on, copies also get the meeting's location and description. Ignored while
+    /// `hideMeetingName` is on, so hidden meetings don't leak through their details.
+    public var copyDetails: Bool
+    /// How often this calendar is read, in minutes. `nil` uses the app-wide interval.
+    public var intervalMinutes: Int?
 
     public init(
         id: UUID = UUID(),
@@ -30,7 +35,9 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
         calendarName: String,
         hideMeetingName: Bool = false,
         isEnabled: Bool = true,
-        showBusyInClient: Bool = false
+        showBusyInClient: Bool = false,
+        copyDetails: Bool = false,
+        intervalMinutes: Int? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -38,6 +45,8 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
         self.hideMeetingName = hideMeetingName
         self.isEnabled = isEnabled
         self.showBusyInClient = showBusyInClient
+        self.copyDetails = copyDetails
+        self.intervalMinutes = intervalMinutes
     }
 
     // Settings saved by older versions don't have every key yet.
@@ -49,6 +58,8 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
         hideMeetingName = try c.decodeIfPresent(Bool.self, forKey: .hideMeetingName) ?? false
         isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
         showBusyInClient = try c.decodeIfPresent(Bool.self, forKey: .showBusyInClient) ?? false
+        copyDetails = try c.decodeIfPresent(Bool.self, forKey: .copyDetails) ?? false
+        intervalMinutes = try c.decodeIfPresent(Int.self, forKey: .intervalMinutes)
     }
 }
 
@@ -57,11 +68,25 @@ public struct SyncOptions: Codable, Hashable, Sendable {
     public var daysAhead: Int
     public var skipDeclined: Bool
     public var skipAllDay: Bool
+    /// Skip client events shown as "Out of office" (holidays, leave), so they don't block the
+    /// main calendar.
+    public var skipOutOfOffice: Bool
 
-    public init(daysAhead: Int = 5, skipDeclined: Bool = true, skipAllDay: Bool = false) {
+    public init(daysAhead: Int = 5, skipDeclined: Bool = true, skipAllDay: Bool = false, skipOutOfOffice: Bool = true) {
         self.daysAhead = daysAhead
         self.skipDeclined = skipDeclined
         self.skipAllDay = skipAllDay
+        self.skipOutOfOffice = skipOutOfOffice
+    }
+
+    // Settings saved by older versions don't have every key yet.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = SyncOptions()
+        daysAhead = try c.decodeIfPresent(Int.self, forKey: .daysAhead) ?? defaults.daysAhead
+        skipDeclined = try c.decodeIfPresent(Bool.self, forKey: .skipDeclined) ?? defaults.skipDeclined
+        skipAllDay = try c.decodeIfPresent(Bool.self, forKey: .skipAllDay) ?? defaults.skipAllDay
+        skipOutOfOffice = try c.decodeIfPresent(Bool.self, forKey: .skipOutOfOffice) ?? defaults.skipOutOfOffice
     }
 }
 
@@ -77,10 +102,13 @@ public struct SourceEvent: Hashable, Sendable {
     public var timeZone: TimeZone?
     public var isDeclined: Bool
     public var isCancelled: Bool
+    /// Shown as "Out of office" in the source calendar.
+    public var isOutOfOffice: Bool
     public var meetingURL: URL?
-    /// Notes of the source event, used only to recognise events this app created
-    /// (so two-way syncing doesn't loop).
+    /// Notes (description) of the source event, as plain text. Used to recognise events this
+    /// app created (so two-way syncing doesn't loop), and copied when the source asks for details.
     public var notes: String?
+    public var location: String?
 
     public init(
         key: String,
@@ -91,8 +119,10 @@ public struct SourceEvent: Hashable, Sendable {
         timeZone: TimeZone? = nil,
         isDeclined: Bool = false,
         isCancelled: Bool = false,
+        isOutOfOffice: Bool = false,
         meetingURL: URL? = nil,
-        notes: String? = nil
+        notes: String? = nil,
+        location: String? = nil
     ) {
         self.key = key
         self.title = title
@@ -102,8 +132,10 @@ public struct SourceEvent: Hashable, Sendable {
         self.timeZone = timeZone
         self.isDeclined = isDeclined
         self.isCancelled = isCancelled
+        self.isOutOfOffice = isOutOfOffice
         self.meetingURL = meetingURL
         self.notes = notes
+        self.location = location
     }
 }
 
@@ -117,9 +149,10 @@ public struct CopySpec: Hashable, Sendable {
     public var timeZone: TimeZone?
     public var url: URL?
     public var notes: String
+    public var location: String?
 
     public init(marker: CopyMarker, title: String, start: Date, end: Date, isAllDay: Bool,
-                timeZone: TimeZone?, url: URL?, notes: String) {
+                timeZone: TimeZone?, url: URL?, notes: String, location: String? = nil) {
         self.marker = marker
         self.title = title
         self.start = start
@@ -128,6 +161,7 @@ public struct CopySpec: Hashable, Sendable {
         self.timeZone = timeZone
         self.url = url
         self.notes = notes
+        self.location = location
     }
 }
 
@@ -142,9 +176,10 @@ public struct ExistingCopy: Hashable, Sendable {
     public var isAllDay: Bool
     public var url: URL?
     public var notes: String
+    public var location: String?
 
     public init(eventID: String, marker: CopyMarker, title: String, start: Date, end: Date,
-                isAllDay: Bool, url: URL?, notes: String) {
+                isAllDay: Bool, url: URL?, notes: String, location: String? = nil) {
         self.eventID = eventID
         self.marker = marker
         self.title = title
@@ -153,6 +188,7 @@ public struct ExistingCopy: Hashable, Sendable {
         self.isAllDay = isAllDay
         self.url = url
         self.notes = notes
+        self.location = location
     }
 }
 

@@ -28,7 +28,10 @@ public enum MeetingLink {
     /// Returns `url` if it's already a meeting link, else the first meeting link found in
     /// `location`, then `notes`. Other links (agendas, docs) are ignored.
     public static func find(url: URL?, location: String?, notes: String?) -> URL? {
-        if let url, isMeetingLink(url.absoluteString) { return url }
+        if let url {
+            let unwrapped = unwrap(url.absoluteString)
+            if isMeetingLink(unwrapped) { return URL(string: unwrapped) ?? url }
+        }
         for text in [location, notes] {
             if let text, let link = firstMeetingLink(in: text) { return link }
         }
@@ -40,15 +43,30 @@ public enum MeetingLink {
         return meetingRegexes.contains { $0.firstMatch(in: string, range: range) != nil }
     }
 
+    /// Also finds links inside HTML (`href="…"`, with `&amp;` escapes) and behind Microsoft
+    /// Defender Safe Links, which many company mailboxes wrap every link in.
     public static func firstMeetingLink(in text: String) -> URL? {
         let range = NSRange(text.startIndex..., in: text)
         for match in urlRegex.matches(in: text, range: range) {
             guard let r = Range(match.range, in: text) else { continue }
             // Drop trailing punctuation that is usually sentence text, not part of the link.
-            var candidate = String(text[r])
+            var candidate = String(text[r]).replacingOccurrences(of: "&amp;", with: "&")
             while let last = candidate.last, ".,;:!?".contains(last) { candidate.removeLast() }
+            candidate = unwrap(candidate)
             if isMeetingLink(candidate), let url = URL(string: candidate) { return url }
         }
         return nil
+    }
+
+    /// The original link inside a Safe Links URL
+    /// (`https://eur01.safelinks.protection.outlook.com/?url=<encoded link>&data=…`).
+    static func unwrap(_ string: String) -> String {
+        guard let components = URLComponents(string: string),
+              let host = components.host?.lowercased(),
+              host.hasSuffix("safelinks.protection.outlook.com"),
+              let inner = components.queryItems?.first(where: { $0.name.lowercased() == "url" })?.value,
+              inner.lowercased().hasPrefix("http")
+        else { return string }
+        return inner
     }
 }

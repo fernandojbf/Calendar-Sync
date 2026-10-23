@@ -138,17 +138,21 @@ public enum SyncPlanner {
         if event.isCancelled { return false }
         if options.skipDeclined && event.isDeclined { return false }
         if options.skipAllDay && event.isAllDay { return false }
+        if options.skipOutOfOffice && event.isOutOfOffice { return false }
         // Never copy our own copies back (two-way setups would loop forever).
         if CopyMarker.isCopy(event.notes) { return false }
         return event.end >= event.start
     }
 
+    /// Notes and location are compared after tidying whitespace, since calendar servers
+    /// (Exchange, Google) change line endings and spacing when they store them.
     static func needsUpdate(_ copy: ExistingCopy, to spec: CopySpec) -> Bool {
         copy.title != spec.title
             || abs(copy.start.timeIntervalSince(spec.start)) >= 1
             || abs(copy.end.timeIntervalSince(spec.end)) >= 1
             || copy.isAllDay != spec.isAllDay
             || copy.url != spec.url
-            || copy.notes != spec.notes
+            || HTMLText.normalize(copy.notes) != HTMLText.normalize(spec.notes)
+            || HTMLText.normalize(copy.location ?? "") != HTMLText.normalize(spec.location ?? "")
     }
 }

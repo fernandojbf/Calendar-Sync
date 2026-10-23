@@ -8,7 +8,10 @@ import WebKit
 ///
 /// The user signs in once in the window (MFA included). Each sync reloads the Outlook
 /// calendar week view in the background and records the JSON that Outlook's own web app
-/// downloads; `OutlookWebParser` turns that into events. Nothing is sent anywhere else.
+/// downloads. The week view leaves out meeting bodies (and so the join links), so the
+/// meetings are then loaded in full through Outlook's own service, signed in the same way
+/// Outlook's own requests are. `OutlookWebParser` turns all of that into events. Nothing is
+/// sent anywhere else.
 ///
 /// EXPERIMENTAL: this depends on how Outlook on the web loads its data, which Microsoft can
 /// change at any time. If a sync can't find calendar data, the copies are left untouched.
@@ -102,9 +105,26 @@ final class OutlookWebSource: NSObject, ObservableObject {
         }
 
         needsSignIn = false
-        let events = OutlookWebParser.events(fromPayloads: captured)
+        let itemIDs = OutlookWebParser.itemIDs(fromPayloads: captured)
+        let details = await loadDetails(itemIDs: itemIDs)
+        let events = OutlookWebParser.events(fromPayloads: captured, details: details)
             .filter { $0.end > start && $0.start < end }
+        let withLinks = events.filter { $0.meetingURL != nil }.count
+        NSLog("Calendar Sync: Outlook \(events.count) meetings, \(details.count) detail responses, \(withLinks) with a meeting link")
         return .success(events)
+    }
+
+    /// Loads the meetings in full (body, join link). Returns the raw responses, or nothing if
+    /// Outlook didn't make a service call the page could copy its sign-in from; the meetings
+    /// are then copied without those details.
+    private func loadDetails(itemIDs: [String]) async -> [Data] {
+        guard !itemIDs.isEmpty else { return [] }
+        return await withCheckedContinuation { continuation in
+            webView.callAsyncJavaScript(Self.detailsScript, arguments: ["ids": itemIDs], in: nil, in: .page) { result in
+                let texts = (try? result.get()) as? [String] ?? []
+                continuation.resume(returning: texts.map { Data($0.utf8) })
+            }
+        }
     }
 
     /// Waits until Outlook has downloaded calendar data and gone quiet for 3 s, up to 30 s.
@@ -149,7 +169,9 @@ final class OutlookWebSource: NSObject, ObservableObject {
     }
 
     /// Wraps `fetch` and `XMLHttpRequest` in the page and forwards responses from calendar
-    /// endpoints to the app. Read-only: requests are passed through unchanged.
+    /// endpoints to the app. Also remembers the URL and headers of Outlook's own service calls
+    /// (which carry its sign-in), for `detailsScript`. Read-only: requests are passed through
+    /// unchanged.
     static let captureScript = #"""
     (function () {
       if (window.__calsync) return;
@@ -164,24 +186,42 @@ final class OutlookWebSource: NSObject, ObservableObject {
           window.webkit.messageHandlers.calsync.postMessage({ url: String(url), body: text });
         } catch (e) {}
       }
+      function remember(url, headers) {
+        try {
+          if (!/\/service\.svc/i.test(String(url))) return;
+          window.__calsyncService = { url: new URL(String(url), location.href).href, headers: headers };
+        } catch (e) {}
+      }
       const origFetch = window.fetch;
       if (origFetch) {
+        window.__calsyncFetch = origFetch;
         window.fetch = function (input, init) {
           const p = origFetch.apply(this, arguments);
           try {
             const url = typeof input === 'string' ? input : (input && input.url) || '';
             if (RX.test(url)) p.then(r => r.clone().text()).then(t => send(url, t)).catch(() => {});
+            const headers = {};
+            if (input && input.headers) new Headers(input.headers).forEach((v, k) => { headers[k] = v; });
+            if (init && init.headers) new Headers(init.headers).forEach((v, k) => { headers[k] = v; });
+            remember(url, headers);
           } catch (e) {}
           return p;
         };
       }
       const open = XMLHttpRequest.prototype.open;
       const xsend = XMLHttpRequest.prototype.send;
+      const setHeader = XMLHttpRequest.prototype.setRequestHeader;
       XMLHttpRequest.prototype.open = function (method, url) {
         this.__calsyncURL = url;
+        this.__calsyncHeaders = {};
         return open.apply(this, arguments);
       };
+      XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+        try { if (this.__calsyncHeaders) this.__calsyncHeaders[String(name).toLowerCase()] = String(value); } catch (e) {}
+        return setHeader.apply(this, arguments);
+      };
       XMLHttpRequest.prototype.send = function () {
+        remember(this.__calsyncURL, this.__calsyncHeaders || {});
         if (RX.test(String(this.__calsyncURL || ''))) {
           this.addEventListener('load', function () {
             try {
@@ -193,6 +233,61 @@ final class OutlookWebSource: NSObject, ObservableObject {
         return xsend.apply(this, arguments);
       };
     })();
+    """#
+}
+
+extension OutlookWebSource {
+    /// Runs in the page (`callAsyncJavaScript`, with `ids`): asks Outlook's service for the
+    /// meetings in full, as Outlook itself does when a meeting is opened, reusing the sign-in
+    /// headers of its last service call. Sends the request in the body and, if Outlook refuses
+    /// that, in the `x-owa-urlpostdata` header that newer Outlook versions use. Returns the
+    /// response texts.
+    static let detailsScript = #"""
+    const svc = window.__calsyncService;
+    if (!svc || !ids || !ids.length) return [];
+    const url = new URL(svc.url);
+    url.searchParams.set('action', 'GetItem');
+    url.searchParams.delete('n');
+    const base = {};
+    for (const [k, v] of Object.entries(svc.headers || {})) {
+      if (!/^(content-length|content-type|action|x-owa-urlpostdata|x-owa-actionname|x-owa-actionid)$/i.test(k)) base[k] = v;
+    }
+    base['action'] = 'GetItem';
+    base['content-type'] = 'application/json; charset=utf-8';
+    const doFetch = window.__calsyncFetch || window.fetch;
+    async function post(headers, body) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      try {
+        const r = await doFetch.call(window, url.href, {
+          method: 'POST', headers, body, credentials: 'include', signal: controller.signal,
+        });
+        return r.ok ? await r.text() : null;
+      } catch (e) {
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    const out = [];
+    const size = 10;
+    for (let i = 0; i < ids.length; i += size) {
+      const request = JSON.stringify({
+        __type: 'GetItemJsonRequest:#Exchange',
+        Header: { __type: 'JsonRequestHeaders:#Exchange', RequestServerVersion: 'Exchange2013' },
+        Body: {
+          __type: 'GetItemRequest:#Exchange',
+          ItemShape: { __type: 'ItemResponseShape:#Exchange', BaseShape: 'AllProperties', BodyType: 'HTML' },
+          ItemIds: ids.slice(i, i + size).map(id => ({ __type: 'ItemId:#Exchange', Id: id })),
+        },
+      });
+      let text = await post(base, request);
+      if (text === null) {
+        text = await post(Object.assign({}, base, { 'x-owa-urlpostdata': encodeURIComponent(request) }), '');
+      }
+      if (text) out.push(text);
+    }
+    return out;
     """#
 }
 
