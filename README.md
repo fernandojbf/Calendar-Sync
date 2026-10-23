@@ -12,6 +12,7 @@ A tiny macOS menu bar app that copies meetings from your client calendars into y
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple&logoColor=white)
 ![Swift 5.9](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)
 ![Menu bar app](https://img.shields.io/badge/lives%20in-the%20menu%20bar-14B8A6)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-8B5CF6)](LICENSE.md)
 
 <a href="https://github.com/neteinstein/Calendar-Sync/raw/main/docs/calendar-sync.mp4">
   <img src="docs/demo.webp" width="860" alt="Calendar Sync demo: client meetings are copied into the main calendar as [Calendar A] meeting name, with the Teams link">
@@ -189,6 +190,12 @@ The original approach was a macOS Shortcut ("Sync Cals") run from cron. Calendar
 | Cancelled meeting | Separate cleanup Shortcut | Copy is removed |
 | Meeting link | Not copied | Copied |
 | Browser-only calendars | Not possible | Outlook on the web, `.ics` links |
+
+## License
+
+Calendar Sync is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). You can use, change and share it for any **noncommercial** purpose, including personal use, research, and use by charities, schools and public bodies. Commercial use needs a separate licence from the author.
+
+Required Notice: Copyright (c) 2026 Pedro Vicente (https://github.com/neteinstein)
 
 <div align="center">
 <br>
