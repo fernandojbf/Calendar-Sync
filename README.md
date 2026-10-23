@@ -12,6 +12,7 @@ A tiny macOS menu bar app that copies meetings from your client calendars into y
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple&logoColor=white)
 ![Swift 5.9](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)
 ![Menu bar app](https://img.shields.io/badge/lives%20in-the%20menu%20bar-14B8A6)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-8B5CF6)](LICENSE.md)
 
 <a href="https://github.com/neteinstein/Calendar-Sync/raw/main/docs/calendar-sync.mp4">
   <img src="docs/demo.webp" width="860" alt="Calendar Sync demo: client meetings are copied into the main calendar as [Calendar A] meeting name, with the Teams link">
@@ -74,6 +75,14 @@ It never copies attendees, so no invites go out. It never copies its own copies 
 
 </td>
 </tr>
+<tr>
+<td colspan="2" valign="top">
+
+### ↩️ Show your main calendar as Busy at the client
+Optional, per client calendar. Your main calendar's events are added to the client calendar as plain **Busy** events, with the time and nothing else: no title, link, location or attendees. Copies of that client's own meetings are skipped, and meetings copied from other clients do show, so each client sees the time the others have booked. It needs a client calendar you can edit in Calendar.app; Outlook on the web and `.ics` link calendars are read-only.
+
+</td>
+</tr>
 </table>
 
 It also lets you **skip meetings you declined** and **skip all-day events**. It syncs **every 15 minutes** (adjustable), and Calendar.app calendars also sync about 10 seconds after a change. Settings has a **preview** that shows what the next sync would change before it changes anything.
@@ -86,6 +95,7 @@ flowchart LR
     B[".ics calendar link<br/>(subscribed)"] --> S
     C["Outlook on the web<br/>(sign in once)"] --> S
     S{{"Calendar Sync<br/>plan: add · update · remove"}} --> M["Main calendar<br/>[Calendar A] Sprint planning ▶ Join"]
+    M -. "optional: Busy, no details" .-> A
 ```
 
 Every copy ends its notes with a tag like `calsync:v1:<source id>:<occurrence id>`. The app uses it to recognise its own copies and match them to their originals, which is why a moved meeting gets updated instead of duplicated.
@@ -124,7 +134,7 @@ open "build/Calendar Sync.app"
 Allow calendar access on first launch. Then open **Settings…** from the menu bar icon:
 
 1. **General:** choose your **main calendar** (the one meetings are copied into), how many days ahead, and how often to sync.
-2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name.
+2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name. Turn on **Show my main calendar here as “Busy”** for any client that should see when you're busy.
 3. **Preview:** see what a sync would change, then let it run.
 
 > [!NOTE]
@@ -180,6 +190,12 @@ The original approach was a macOS Shortcut ("Sync Cals") run from cron. Calendar
 | Cancelled meeting | Separate cleanup Shortcut | Copy is removed |
 | Meeting link | Not copied | Copied |
 | Browser-only calendars | Not possible | Outlook on the web, `.ics` links |
+
+## License
+
+Calendar Sync is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). You can use, change and share it for any **noncommercial** purpose, including personal use, research, and use by charities, schools and public bodies. Commercial use needs a separate licence from the author.
+
+Required Notice: Copyright (c) 2026 Pedro Vicente (https://github.com/neteinstein)
 
 <div align="center">
 <br>

@@ -20,19 +20,35 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
     /// When on, copies are titled `[Calendar A] Busy` instead of using the meeting name.
     public var hideMeetingName: Bool
     public var isEnabled: Bool
+    /// When on, events in the main calendar are also added to this client calendar as plain
+    /// "Busy" events with no other details. Only possible for calendars that can be edited.
+    public var showBusyInClient: Bool
 
     public init(
         id: UUID = UUID(),
         kind: SourceKind,
         calendarName: String,
         hideMeetingName: Bool = false,
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        showBusyInClient: Bool = false
     ) {
         self.id = id
         self.kind = kind
         self.calendarName = calendarName
         self.hideMeetingName = hideMeetingName
         self.isEnabled = isEnabled
+        self.showBusyInClient = showBusyInClient
+    }
+
+    // Settings saved by older versions don't have every key yet.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        kind = try c.decode(SourceKind.self, forKey: .kind)
+        calendarName = try c.decode(String.self, forKey: .calendarName)
+        hideMeetingName = try c.decodeIfPresent(Bool.self, forKey: .hideMeetingName) ?? false
+        isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        showBusyInClient = try c.decodeIfPresent(Bool.self, forKey: .showBusyInClient) ?? false
     }
 }
 

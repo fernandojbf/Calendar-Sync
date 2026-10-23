@@ -12,6 +12,14 @@ final class SyncController: ObservableObject {
     @Published private(set) var lastSummary = "Not synced yet"
     @Published private(set) var problems: [String] = []
     @Published private(set) var preview: SyncPlan?
+    /// Busy events the next sync would add to client calendars, per client calendar.
+    @Published private(set) var busyPreview: [BusyPreview] = []
+
+    struct BusyPreview: Identifiable {
+        let id: UUID
+        let calendarName: String
+        let plan: SyncPlan
+    }
 
     let settings: SettingsStore
     let eventKit = EventKitBridge()
@@ -122,12 +130,44 @@ final class SyncController: ObservableObject {
             ignoreStoreChangesUntil = Date().addingTimeInterval(5)
             problems += eventKit.apply(plan, targetID: targetID)
             ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+        }
+
+        // Then show the main calendar (now including the new copies) as Busy in the client
+        // calendars that ask for it.
+        var busyPlans: [BusyPreview] = []
+        for source in settings.sources where source.isEnabled && source.showBusyInClient {
+            guard case .eventKit(let calendarID) = source.kind, calendarID != targetID,
+                  let calendar = eventKit.calendar(id: calendarID) else { continue }
+            guard calendar.allowsContentModifications else {
+                problems.append("\(calendar.title): read-only, so Busy events can't be added.")
+                continue
+            }
+            let busy = SyncPlanner.planBusy(
+                for: source,
+                mainEvents: eventKit.sourceEvents(calendarID: targetID, from: start, to: end),
+                existing: eventKit.existingCopies(targetID: calendarID, from: start, to: end) ?? [],
+                options: settings.options)
+            problems += busy.failedSources.values.map { "\(calendar.title) (Busy): \($0)" }
+            if apply {
+                ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+                problems += eventKit.apply(busy, targetID: calendarID).map { "\(calendar.title) (Busy): \($0)" }
+                ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+            }
+            busyPlans.append(BusyPreview(id: source.id, calendarName: calendar.title, plan: busy))
+        }
+
+        if apply {
             lastSync = Date()
             lastSummary = plan.isEmpty
                 ? "Up to date (\(plan.unchangedCount) copied meetings)"
                 : "Added \(plan.creates), updated \(plan.updates), removed \(plan.deletes)"
+            let busyChanges = busyPlans.reduce(0) { $0 + $1.plan.actions.count }
+            if busyChanges > 0 {
+                lastSummary += ". Busy events: \(busyChanges) changed"
+            }
         } else {
             preview = plan
+            busyPreview = busyPlans
         }
         self.problems = problems.sorted()
         return plan

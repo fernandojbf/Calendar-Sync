@@ -52,14 +52,68 @@ public enum SyncPlanner {
             }
         }
 
+        let (actions, unchanged) = diff(desired: desired, order: desiredOrder, existing: existing, owners: syncedSourceIDs)
+        return SyncPlan(actions: actions, failedSources: failed, unchangedCount: unchanged)
+    }
+
+    /// Plans the "Busy" events that show the main calendar inside one client calendar.
+    ///
+    /// - Parameters:
+    ///   - source: the client calendar to write into.
+    ///   - mainEvents: the main calendar's events for the sync window.
+    ///   - existing: copies currently in the client calendar (anything carrying a marker).
+    public static func planBusy(
+        for source: SourceConfig,
+        mainEvents: SourceFetchResult,
+        existing: [ExistingCopy],
+        options: SyncOptions
+    ) -> SyncPlan {
+        let events: [SourceEvent]
+        switch mainEvents {
+        case .failure(let reason):
+            // Leave existing Busy events alone rather than deleting them.
+            return SyncPlan(actions: [], failedSources: [source.id: reason], unchangedCount: 0)
+        case .success(let list):
+            events = list
+        }
+
+        var desired: [CopyMarker: CopySpec] = [:]
+        var order: [CopyMarker] = []
+        for event in events where shouldShowBusy(event, in: source, options: options) {
+            let spec = CopyFormatter.busySpec(for: event, source: source)
+            if desired[spec.marker] == nil {
+                desired[spec.marker] = spec
+                order.append(spec.marker)
+            }
+        }
+        let (actions, unchanged) = diff(desired: desired, order: order, existing: existing, owners: [source.id])
+        return SyncPlan(actions: actions, failedSources: [:], unchangedCount: unchanged)
+    }
+
+    static func shouldShowBusy(_ event: SourceEvent, in source: SourceConfig, options: SyncOptions) -> Bool {
+        if event.isCancelled { return false }
+        if options.skipDeclined && event.isDeclined { return false }
+        if options.skipAllDay && event.isAllDay { return false }
+        // Copies of this client's own meetings are already in its calendar. Copies from other
+        // client calendars are shown, so each client sees time booked by the others.
+        if CopyMarker.find(in: event.notes)?.sourceID == source.id { return false }
+        return event.end >= event.start
+    }
+
+    /// Matches desired copies against existing ones. Only copies owned by `owners` are
+    /// touched, so copies of sources that failed, are disabled or were removed stay as they are.
+    static func diff(
+        desired: [CopyMarker: CopySpec],
+        order: [CopyMarker],
+        existing: [ExistingCopy],
+        owners: Set<UUID>
+    ) -> ([SyncAction], Int) {
         var actions: [SyncAction] = []
         var matched: Set<CopyMarker> = []
         var unchanged = 0
 
         for copy in existing.sorted(by: { $0.start < $1.start }) {
-            // Only touch copies of sources we read successfully. Copies from sources that
-            // failed, are disabled or were removed are left alone.
-            guard syncedSourceIDs.contains(copy.marker.sourceID) else { continue }
+            guard owners.contains(copy.marker.sourceID) else { continue }
 
             guard let spec = desired[copy.marker], !matched.contains(copy.marker) else {
                 // Source occurrence is gone (cancelled, declined, deleted) or this is a duplicate.
@@ -74,11 +128,10 @@ public enum SyncPlanner {
             }
         }
 
-        for marker in desiredOrder where !matched.contains(marker) {
+        for marker in order where !matched.contains(marker) {
             actions.append(.create(desired[marker]!))
         }
-
-        return SyncPlan(actions: actions, failedSources: failed, unchangedCount: unchanged)
+        return (actions, unchanged)
     }
 
     static func shouldCopy(_ event: SourceEvent, options: SyncOptions) -> Bool {

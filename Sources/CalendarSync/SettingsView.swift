@@ -146,6 +146,16 @@ private struct SourceRow: View {
             }
             Toggle("Hide meeting names (copy as “[\(displayName)] Busy”)", isOn: $source.hideMeetingName)
             Toggle("Sync this calendar", isOn: $source.isEnabled)
+            if case .eventKit(let calendarID) = source.kind {
+                let writable = controller.eventKit.calendar(id: calendarID)?.allowsContentModifications ?? false
+                Toggle("Show my main calendar here as “Busy”", isOn: $source.showBusyInClient)
+                    .disabled(!writable && !source.showBusyInClient)
+                    .onChange(of: source.showBusyInClient) { _, _ in Task { await controller.sync() } }
+                if !writable {
+                    Text("This calendar is read-only, so Busy events can't be added to it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             HStack {
                 if source.kind == .outlookWeb {
                     Button("Open Outlook window") { controller.showOutlookWindow(for: source) }
@@ -170,7 +180,8 @@ private struct SourceRow: View {
                 Label("Outlook on the web (experimental)", systemImage: "globe")
             }
         } footer: {
-            Text("Copies are titled “[\(displayName)] \(source.hideMeetingName ? "Busy" : "Meeting name")” and include the meeting link when there is one.")
+            Text("Copies are titled “[\(displayName)] \(source.hideMeetingName ? "Busy" : "Meeting name")” and include the meeting link when there is one."
+                 + (source.showBusyInClient ? " Your main calendar's events also appear here as “Busy”, with no other details." : ""))
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -239,12 +250,16 @@ private struct PreviewTab: View {
                      ? "Nothing to change (\(plan.unchangedCount) copies up to date)."
                      : "\(plan.creates) to add, \(plan.updates) to update, \(plan.deletes) to remove, \(plan.unchangedCount) unchanged.")
                     .foregroundStyle(.secondary)
-                List(Array(plan.actions.enumerated()), id: \.offset) { _, action in
+                ForEach(controller.busyPreview) { busy in
+                    Text("Busy in \(busy.calendarName): \(busy.plan.creates) to add, \(busy.plan.updates) to update, \(busy.plan.deletes) to remove.")
+                        .foregroundStyle(.secondary)
+                }
+                List(previewRows(plan), id: \.offset) { row in
                     HStack {
-                        Text(action.verb).frame(width: 60, alignment: .leading).foregroundStyle(.secondary)
-                        Text(action.title)
+                        Text(row.element.action.verb).frame(width: 60, alignment: .leading).foregroundStyle(.secondary)
+                        Text(row.element.title)
                         Spacer()
-                        Text(action.start, format: .dateTime.weekday().day().month().hour().minute())
+                        Text(row.element.action.start, format: .dateTime.weekday().day().month().hour().minute())
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -256,6 +271,15 @@ private struct PreviewTab: View {
             }
         }
         .padding()
+    }
+
+    /// Main-calendar changes first, then the Busy events per client calendar.
+    private func previewRows(_ plan: SyncPlan) -> [EnumeratedSequence<[(action: SyncAction, title: String)]>.Element] {
+        var rows = plan.actions.map { (action: $0, title: $0.title) }
+        for busy in controller.busyPreview {
+            rows += busy.plan.actions.map { (action: $0, title: "Busy in \(busy.calendarName)") }
+        }
+        return Array(rows.enumerated())
     }
 }
 
