@@ -6,7 +6,7 @@
 
 **Your client meetings, in your main calendar.**
 
-A tiny macOS menu bar app that copies meetings from your client calendars into your company calendar, so colleagues stop booking you over your client standup.
+A tiny macOS menu bar app that copies meetings from your client calendars into your main calendar, so colleagues stop booking you over your client standup.
 
 [![Build](https://github.com/neteinstein/Calendar-Sync/actions/workflows/build.yml/badge.svg)](https://github.com/neteinstein/Calendar-Sync/actions/workflows/build.yml)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple&logoColor=white)
@@ -27,7 +27,7 @@ A tiny macOS menu bar app that copies meetings from your client calendars into y
 
 Booked solid at the client. Wide open in your main calendar.
 
-When you work inside a client's calendar, your own company calendar says you're free all day. The old fix was a [hand-built Shortcut and a cron job](#coming-from-the-shortcut). Calendar Sync does the same job properly: one install, a settings window, and copies that stay correct when meetings move.
+When you work inside a client's calendar, your main calendar (the one your colleagues book you through) says you're free all day. The old fix was a [hand-built Shortcut and a cron job](#coming-from-the-shortcut). Calendar Sync does the same job properly: one install, a settings window, and copies that stay correct when meetings move.
 
 ## What you get
 
@@ -123,7 +123,7 @@ open "build/Calendar Sync.app"
 
 Allow calendar access on first launch. Then open **Settings…** from the menu bar icon:
 
-1. **General:** choose the calendar to copy into (your main calendar), how many days ahead, and how often to sync.
+1. **General:** choose your **main calendar** (the one meetings are copied into), how many days ahead, and how often to sync.
 2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name.
 3. **Preview:** see what a sync would change, then let it run.
 
