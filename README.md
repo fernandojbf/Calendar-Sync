@@ -85,7 +85,9 @@ Optional, per client calendar. Your main calendar's events are added to the clie
 </tr>
 </table>
 
-It also lets you **skip meetings you declined** and **skip all-day events**. It syncs **every 15 minutes** (adjustable), and Calendar.app calendars also sync about 10 seconds after a change. Settings has a **preview** that shows what the next sync would change before it changes anything.
+It also lets you **skip meetings you declined**, **skip all-day events** and **skip out-of-office events** (on by default). Per client calendar, copies can also get the meeting's **location and description**.
+
+It syncs **every 15 minutes** by default; set any interval from 1 minute to 24 hours, and give a client calendar **its own interval** when it should sync more or less often than the rest (say, Outlook on the web hourly). Calendar.app calendars also sync about 10 seconds after a change. Settings has a **preview** that shows what the next sync would change before it changes anything.
 
 ## How it works
 
@@ -106,7 +108,7 @@ Every copy ends its notes with a tag like `calsync:v1:<source id>:<occurrence id
 |---|---|
 | **Added to Calendar.app** (Exchange, Google, iCloud, …) | **Add client calendar › From Calendar.app** |
 | **Browser only, with a published link** | **Add client calendar › Calendar link (.ics)**. Calendar.app subscribes to the link, then you pick it like any other calendar. |
-| **Browser only: Outlook / Microsoft 365** | **Add client calendar › Outlook on the web**. Sign in once in the app's own window (MFA included). Each sync reloads Outlook's week view in the background and reads the meetings it loads. *Experimental.* |
+| **Browser only: Outlook / Microsoft 365** | **Add client calendar › Outlook on the web**. Sign in once in the app's own window (MFA included). Each sync reloads Outlook's week view in the background, reads the meetings it loads, then loads each meeting in full for its join link and details. *Experimental.* |
 
 <details>
 <summary><b>About the Outlook on the web option</b></summary>
@@ -134,7 +136,7 @@ open "build/Calendar Sync.app"
 Allow calendar access on first launch. Then open **Settings…** from the menu bar icon:
 
 1. **General:** choose your **main calendar** (the one meetings are copied into), how many days ahead, and how often to sync.
-2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name. Turn on **Show my main calendar here as “Busy”** for any client that should see when you're busy.
+2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name. Optionally turn on **Copy location and description**, **Use its own sync interval**, or **Show my main calendar here as “Busy”** for any client that should see when you're busy.
 3. **Preview:** see what a sync would change, then let it run.
 
 > [!NOTE]
@@ -164,11 +166,11 @@ The bundle identifier is `org.neteinstein.calendarsync`.
 swift test
 ```
 
-The tests cover the sync rules: titles, meeting links, moves, deletes, filters, no loops, and the Outlook data parser. They run on Linux too. CI builds the app and runs the tests on macOS for every push.
+The tests cover the sync rules: titles, meeting links, details, moves, deletes, filters, no loops, per-calendar intervals, and the Outlook data parser. They run on Linux too. CI builds the app and runs the tests on macOS for every push.
 
 | Folder | What's in it |
 |---|---|
-| [`Sources/CalendarSyncCore`](Sources/CalendarSyncCore) | Platform-independent rules: `SyncPlanner` (what to add, update and remove), `CopyFormatter` (titles and notes), `MeetingLink`, `CopyMarker` and `OutlookWebParser` |
+| [`Sources/CalendarSyncCore`](Sources/CalendarSyncCore) | Platform-independent rules: `SyncPlanner` (what to add, update and remove), `SyncSchedule` (which calendars are due), `CopyFormatter` (titles and notes), `MeetingLink`, `CopyMarker`, `HTMLText` and `OutlookWebParser` |
 | [`Sources/CalendarSync`](Sources/CalendarSync) | The macOS app: `EventKitBridge` (Calendar.app), `OutlookWebSource` (built-in Outlook browser), `SyncController` (scheduling) and the SwiftUI views |
 | [`Tests`](Tests) | Unit tests for the core |
 | [`scripts/build-app.sh`](scripts/build-app.sh) | Builds and signs `Calendar Sync.app` |

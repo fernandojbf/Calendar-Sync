@@ -56,6 +56,46 @@ final class OutlookWebParserTests: XCTestCase {
         XCTAssertEqual(events.map(\.key), ["1"])
     }
 
+    func testWeekViewIsCompletedWithFullMeetingDetails() {
+        // The week view has no body and no join link, as Outlook on the web sends it.
+        let week = """
+        {"Body":{"Items":[{"ItemId":{"Id":"AAMk1"},"Subject":"Sprint planning",
+          "Start":"2026-10-23T09:00:00Z","End":"2026-10-23T10:00:00Z","FreeBusyType":"Busy",
+          "Location":{"DisplayName":"Microsoft Teams Meeting"},
+          "Preview":"Microsoft Teams Need help? Join the meeting now Meeting ID: 123 456"}]}}
+        """
+        // GetItem response: HTML body with the link behind Safe Links and "Join the meeting now".
+        let full = """
+        {"Body":{"ResponseMessages":{"Items":[{"ResponseClass":"Success","Items":[
+          {"__type":"CalendarItem:#Exchange","ItemId":{"Id":"AAMk1","ChangeKey":"c"},"Subject":"Sprint planning",
+           "Body":{"BodyType":"HTML","Value":"<html><head><style>p{}</style></head><body><p>Agenda:&nbsp;stories</p><div>________________</div><a href=\\"https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fteams.microsoft.com%2Fl%2Fmeetup-join%2F19%253ameeting_x%2540thread.v2%2F0&amp;data=05%7C02&amp;reserved=0\\">Join the meeting now</a><br>Meeting ID: 123 456</body></html>"},
+           "Location":{"DisplayName":"Microsoft Teams Meeting"}}]}]}}}
+        """
+        XCTAssertEqual(OutlookWebParser.itemIDs(fromPayloads: [Data(week.utf8)]), ["AAMk1"])
+
+        let without = OutlookWebParser.events(fromPayloads: [Data(week.utf8)])
+        XCTAssertNil(without[0].meetingURL)
+
+        let events = OutlookWebParser.events(fromPayloads: [Data(week.utf8)], details: [Data(full.utf8)])
+        XCTAssertEqual(events.count, 1, "details never add events of their own")
+        let e = events[0]
+        XCTAssertEqual(e.key, "AAMk1")
+        XCTAssertEqual(e.meetingURL?.absoluteString, "https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0")
+        XCTAssertEqual(e.location, "Microsoft Teams Meeting")
+        XCTAssertEqual(e.notes, "Agenda: stories\n________________\nJoin the meeting now\nMeeting ID: 123 456")
+    }
+
+    func testOutOfOffice() {
+        let json = """
+        {"Items":[{"ItemId":{"Id":"1"},"Subject":"Holiday","Start":"2026-10-23T00:00:00Z","End":"2026-10-24T00:00:00Z","FreeBusyType":"OOF"},
+                  {"ItemId":{"Id":"2"},"Subject":"Standup","Start":"2026-10-23T09:00:00Z","End":"2026-10-23T09:15:00Z","FreeBusyType":"Busy"}],
+         "value":[{"id":"3","subject":"Leave","start":{"dateTime":"2026-10-23T00:00:00","timeZone":"UTC"},
+                   "end":{"dateTime":"2026-10-24T00:00:00","timeZone":"UTC"},"showAs":"oof"}]}
+        """
+        let events = OutlookWebParser.events(fromPayloads: [Data(json.utf8)])
+        XCTAssertEqual(Set(events.filter(\.isOutOfOffice).map(\.key)), ["1", "3"])
+    }
+
     func testDaylightSavingLocalTime() {
         // 23 Oct 2026 is still British Summer Time (UTC+1).
         let date = OutlookWebParser.parseDate("2026-10-23T09:00:00", zone: "GMT Standard Time")

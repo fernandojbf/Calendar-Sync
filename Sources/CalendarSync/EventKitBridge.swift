@@ -62,8 +62,11 @@ final class EventKitBridge {
             timeZone: event.timeZone,
             isDeclined: myStatus == .declined,
             isCancelled: event.status == .canceled,
+            // Exchange's "Out of office" comes through as unavailable.
+            isOutOfOffice: event.availability == .unavailable,
             meetingURL: MeetingLink.find(url: event.url, location: event.location, notes: event.notes),
-            notes: event.notes
+            notes: event.notes,
+            location: event.location
         )
     }
 
@@ -86,7 +89,8 @@ final class EventKitBridge {
                 end: event.endDate,
                 isAllDay: event.isAllDay,
                 url: event.url ?? MeetingLink.firstMeetingLink(in: notes),
-                notes: notes
+                notes: notes,
+                location: event.location
             )
         }
     }
@@ -141,6 +145,7 @@ final class EventKitBridge {
         event.endDate = spec.end
         event.url = spec.url
         event.notes = spec.notes
+        event.location = spec.location
         if calendar.supportedEventAvailabilities.contains(.busy) {
             event.availability = .busy
         }

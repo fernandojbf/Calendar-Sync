@@ -3,7 +3,8 @@ import EventKit
 import Foundation
 import WebKit
 
-/// Runs syncs: on a timer, when Calendar data changes, and on demand.
+/// Runs syncs: on a timer (each client calendar on its own interval), when Calendar data
+/// changes, and on demand.
 @MainActor
 final class SyncController: ObservableObject {
     @Published private(set) var hasCalendarAccess = false
@@ -25,6 +26,8 @@ final class SyncController: ObservableObject {
     let eventKit = EventKitBridge()
     private var outlookSources: [UUID: OutlookWebSource] = [:]
     private var timer: Timer?
+    /// When each client calendar was last read by a sync that applied its changes.
+    private var lastRead: [UUID: Date] = [:]
     private var storeObserver: NSObjectProtocol?
     private var pendingChangeSync: Task<Void, Never>?
     /// Our own writes also fire EKEventStoreChanged; ignore those.
@@ -46,31 +49,43 @@ final class SyncController: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.calendarDataChanged() }
         }
-        restartTimer()
+        startTimer()
         await sync()
     }
 
-    func restartTimer() {
+    /// Checks every minute which client calendars are due, so each can have its own interval
+    /// and interval changes apply without restarting anything.
+    private func startTimer() {
         timer?.invalidate()
-        let interval = TimeInterval(max(settings.intervalMinutes, 1) * 60)
         // Scheduled on the main run loop, so the block runs on the main actor.
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                Task { await self.sync() }
+                Task { await self.syncDueSources() }
             }
         }
+        timer?.tolerance = 10
+    }
+
+    private func syncDueSources() async {
+        let due = SyncSchedule.dueSources(
+            settings.sources, lastRead: lastRead, defaultMinutes: settings.intervalMinutes, now: Date())
+        guard !due.isEmpty else { return }
+        await sync(only: due)
     }
 
     /// Calendar.app changed (e.g. a client meeting moved): resync the Calendar.app sources
-    /// after a short pause. Outlook web sources wait for the timer, since reading them is slow.
+    /// after a short pause. Outlook web sources wait for their interval, since reading them is slow.
     private func calendarDataChanged() {
         guard Date() > ignoreStoreChangesUntil else { return }
         pendingChangeSync?.cancel()
         pendingChangeSync = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 10_000_000_000)
-            guard !Task.isCancelled else { return }
-            await self?.sync(includeWebSources: false)
+            guard !Task.isCancelled, let self else { return }
+            let calendarApp = self.settings.sources.filter {
+                if case .eventKit = $0.kind { true } else { false }
+            }
+            await self.sync(only: Set(calendarApp.map(\.id)))
         }
     }
 
@@ -83,10 +98,11 @@ final class SyncController: ObservableObject {
         return (start, end)
     }
 
-    /// Reads all sources and works out the changes. With `apply == false` nothing is written
-    /// (used for the preview).
+    /// Reads the sources and works out the changes. With `apply == false` nothing is written
+    /// (used for the preview). With `only`, just those sources are read; copies of the others
+    /// are left as they are.
     @discardableResult
-    func sync(apply: Bool = true, includeWebSources: Bool = true) async -> SyncPlan? {
+    func sync(apply: Bool = true, only: Set<UUID>? = nil) async -> SyncPlan? {
         // Access may have been granted in System Settings since launch; start() then syncs.
         if !hasCalendarAccess, eventKit.hasAccess {
             await start()
@@ -102,7 +118,8 @@ final class SyncController: ObservableObject {
 
         let (start, end) = window
         var results: [(config: SourceConfig, result: SourceFetchResult)] = []
-        for source in settings.sources where source.isEnabled {
+        for source in settings.sources where source.isEnabled && only?.contains(source.id) != false {
+            if apply { lastRead[source.id] = Date() }
             switch source.kind {
             case .eventKit(let calendarID):
                 if calendarID == targetID { continue } // never copy a calendar into itself
@@ -111,8 +128,6 @@ final class SyncController: ObservableObject {
                 if let calendar = eventKit.calendar(id: calendarID) { source.calendarName = calendar.title }
                 results.append((source, eventKit.sourceEvents(calendarID: calendarID, from: start, to: end)))
             case .outlookWeb:
-                // Skipped sources aren't passed to the planner, so their copies stay as they are.
-                guard includeWebSources else { continue }
                 results.append((source, await outlookSource(for: source.id).fetch(from: start, to: end)))
             }
         }
@@ -158,8 +173,10 @@ final class SyncController: ObservableObject {
 
         if apply {
             lastSync = Date()
+            // Counts copies of every client calendar, including ones not read this time.
+            let copies = existing.count + plan.creates - plan.deletes
             lastSummary = plan.isEmpty
-                ? "Up to date (\(plan.unchangedCount) copied meetings)"
+                ? "Up to date (\(copies) copied meetings)"
                 : "Added \(plan.creates), updated \(plan.updates), removed \(plan.deletes)"
             let busyChanges = busyPlans.reduce(0) { $0 + $1.plan.actions.count }
             if busyChanges > 0 {

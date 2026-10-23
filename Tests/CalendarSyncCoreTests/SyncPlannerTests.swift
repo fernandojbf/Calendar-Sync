@@ -14,7 +14,7 @@ final class SyncPlannerTests: XCTestCase {
         plan.actions.enumerated().compactMap { i, action in
             guard case .create(let s) = action else { return nil }
             return ExistingCopy(eventID: "copy-\(i)", marker: s.marker, title: s.title, start: s.start,
-                                end: s.end, isAllDay: s.isAllDay, url: s.url, notes: s.notes)
+                                end: s.end, isAllDay: s.isAllDay, url: s.url, notes: s.notes, location: s.location)
         }
     }
 
@@ -113,6 +113,73 @@ final class SyncPlannerTests: XCTestCase {
         XCTAssertEqual(next.unchangedCount, 1)
     }
 
+    func testOutOfOfficeIsSkippedUnlessTurnedOff() {
+        var holiday = event("h", "Holiday", at: 1); holiday.isOutOfOffice = true
+        let events = [holiday, event("ok", "Fine", at: 2)]
+        XCTAssertEqual(SyncPlanner.plan(sources: [(source, .success(events))], existing: [], options: SyncOptions()).creates, 1)
+        XCTAssertEqual(SyncPlanner.plan(sources: [(source, .success(events))], existing: [],
+                                        options: SyncOptions(skipOutOfOffice: false)).creates, 2)
+    }
+
+    func testCopyDetailsAddsLocationAndDescription() {
+        var detailed = source
+        detailed.copyDetails = true
+        var e = event("1", "Review", at: 1, url: URL(string: "https://zoom.us/j/1"))
+        e.location = "Room 4.1"
+        e.notes = "Agenda:\r\n- demo\u{00A0} \r\n\r\n\r\n\r\nBring laptops"
+
+        let plan = SyncPlanner.plan(sources: [(detailed, .success([e]))], existing: [], options: SyncOptions())
+        guard case .create(let spec) = plan.actions[0] else { return XCTFail() }
+        XCTAssertEqual(spec.location, "Room 4.1")
+        XCTAssertTrue(spec.notes.hasPrefix("Join: https://zoom.us/j/1\n\nAgenda:\n- demo\n\nBring laptops\n\nCopied by Calendar Sync."))
+        XCTAssertEqual(CopyMarker.find(in: spec.notes)?.key, "1")
+
+        // Off by default, and never while meeting names are hidden.
+        guard case .create(let plain) = SyncPlanner.plan(sources: [(source, .success([e]))], existing: [], options: SyncOptions()).actions[0]
+        else { return XCTFail() }
+        XCTAssertNil(plain.location)
+        XCTAssertFalse(plain.notes.contains("Agenda"))
+        detailed.hideMeetingName = true
+        guard case .create(let hidden) = SyncPlanner.plan(sources: [(detailed, .success([e]))], existing: [], options: SyncOptions()).actions[0]
+        else { return XCTFail() }
+        XCTAssertNil(hidden.location)
+        XCTAssertFalse(hidden.notes.contains("Agenda"))
+    }
+
+    func testDetailsSurviveServerWhitespaceChanges() {
+        var detailed = source
+        detailed.copyDetails = true
+        var e = event("1", "Review", at: 1)
+        e.location = "Room 4.1"
+        e.notes = "Line one\nLine two"
+        let first = SyncPlanner.plan(sources: [(detailed, .success([e]))], existing: [], options: SyncOptions())
+        // Exchange hands notes back with CRLF and trailing spaces.
+        let stored = copies(from: first).map { copy -> ExistingCopy in
+            var copy = copy
+            copy.notes = copy.notes.replacingOccurrences(of: "\n", with: " \r\n")
+            copy.location = "Room 4.1 "
+            return copy
+        }
+        let second = SyncPlanner.plan(sources: [(detailed, .success([e]))], existing: stored, options: SyncOptions())
+        XCTAssertTrue(second.isEmpty)
+
+        // Turning details on later updates the existing copies.
+        let before = SyncPlanner.plan(sources: [(source, .success([e]))], existing: [], options: SyncOptions())
+        let after = SyncPlanner.plan(sources: [(detailed, .success([e]))], existing: copies(from: before), options: SyncOptions())
+        XCTAssertEqual(after.updates, 1)
+    }
+
+    func testOptionsSavedByOlderVersionsKeepDefaults() throws {
+        let old = #"{"daysAhead":7,"skipDeclined":false,"skipAllDay":true}"#
+        let options = try JSONDecoder().decode(SyncOptions.self, from: Data(old.utf8))
+        XCTAssertEqual(options, SyncOptions(daysAhead: 7, skipDeclined: false, skipAllDay: true, skipOutOfOffice: true))
+
+        let source = #"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","kind":{"outlookWeb":{}},"calendarName":"A"}"#
+        let config = try JSONDecoder().decode(SourceConfig.self, from: Data(source.utf8))
+        XCTAssertFalse(config.copyDetails)
+        XCTAssertNil(config.intervalMinutes)
+    }
+
     func testEmptyCalendarNameHasNoBrackets() {
         var noName = source
         noName.calendarName = "  "
@@ -152,8 +219,48 @@ final class MeetingLinkTests: XCTestCase {
         XCTAssertNil(MeetingLink.find(url: URL(string: "https://example.com/doc"), location: "Room 4", notes: "See https://jira.example.com/X-1"))
     }
 
+    func testUnwrapsSafeLinksAndHTML() {
+        let html = #"<a href="https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Facme.zoom.us%2Fj%2F42%3Fpwd%3Dx&amp;data=05&amp;reserved=0">Join</a>"#
+        XCTAssertEqual(MeetingLink.firstMeetingLink(in: html)?.absoluteString, "https://acme.zoom.us/j/42?pwd=x")
+        let wrapped = URL(string: "https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij&data=1")
+        XCTAssertEqual(MeetingLink.find(url: wrapped, location: nil, notes: nil)?.absoluteString, "https://meet.google.com/abc-defg-hij")
+        XCTAssertNil(MeetingLink.firstMeetingLink(in: "https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.com"))
+    }
+
     func testEventURLWins() {
         let url = URL(string: "https://company.webex.com/meet/someone")!
         XCTAssertEqual(MeetingLink.find(url: url, location: "https://zoom.us/j/1", notes: nil), url)
+    }
+}
+
+final class HTMLTextTests: XCTestCase {
+    func testPlainText() {
+        let html = """
+        <html><head><title>x</title></head><body><!-- hidden --><div>Hello&nbsp;<b>there</b> &amp; welcome</div>
+        <p>Line&#160;two &#x2014; done</p><br/><br/><br/><ul><li>One</li><li>Two</li></ul><script>alert(1)</script></body></html>
+        """
+        XCTAssertEqual(HTMLText.plainText(from: html), "Hello there & welcome\nLine two — done\n\nOne\nTwo")
+    }
+}
+
+final class SyncScheduleTests: XCTestCase {
+    func testEachSourceUsesItsOwnInterval() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let usual = SourceConfig(kind: .eventKit(calendarID: "a"), calendarName: "A")
+        let hourly = SourceConfig(kind: .outlookWeb, calendarName: "B", intervalMinutes: 60)
+        let fresh = SourceConfig(kind: .outlookWeb, calendarName: "C", intervalMinutes: 5)
+        let off = SourceConfig(kind: .outlookWeb, calendarName: "D", isEnabled: false)
+        let sources = [usual, hourly, fresh, off]
+        let twentyMinutesAgo = now - 20 * 60
+        let lastRead = [usual.id: twentyMinutesAgo, hourly.id: twentyMinutesAgo, off.id: twentyMinutesAgo]
+
+        XCTAssertEqual(SyncSchedule.dueSources(sources, lastRead: lastRead, defaultMinutes: 15, now: now),
+                       [usual.id, fresh.id], "15 min passed, 60 min not; never read is due; disabled never is")
+        XCTAssertEqual(SyncSchedule.dueSources(sources, lastRead: lastRead, defaultMinutes: 30, now: now), [fresh.id])
+        // A tick that lands a few seconds early still counts.
+        XCTAssertEqual(SyncSchedule.dueSources([usual], lastRead: [usual.id: now - 14 * 60 - 45], defaultMinutes: 15, now: now),
+                       [usual.id])
+        XCTAssertEqual(SyncSchedule.interval(for: SourceConfig(kind: .outlookWeb, calendarName: "E", intervalMinutes: 0),
+                                             defaultMinutes: 15), 1)
     }
 }
