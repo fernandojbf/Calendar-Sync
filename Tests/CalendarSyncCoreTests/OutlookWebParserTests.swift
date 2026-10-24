@@ -101,4 +101,33 @@ final class OutlookWebParserTests: XCTestCase {
         let date = OutlookWebParser.parseDate("2026-10-23T09:00:00", zone: "GMT Standard Time")
         XCTAssertEqual(date, ISO8601DateFormatter().date(from: "2026-10-23T08:00:00Z"))
     }
+
+    func testScreenLabels() {
+        let labels = [
+            "Team stand-up, 10:15 AM to 10:30 AM, Monday, October 26, 2026, Microsoft Teams Meeting, By Alex Morgan, Busy, Recurring event",
+            "Sprint close, retro & planning, 1:00 PM to 2:00 PM, Thursday, October 29, 2026, Microsoft Teams Meeting, By Alex Morgan, Busy, Recurring event",
+            " Architecture open class (session 1), 3:00 PM to 4:30 PM, Wednesday, October 28, 2026, https://meet.google.com/abc-defg-hij, By Sam Lee, Busy",
+            "Canceled: Retro, 11:00 AM to 11:30 AM, Friday, October 30, 2026, By Chris Park, Free",
+            "Annual leave, all day event, Saturday, October 17, 2026 to Monday, October 26, 2026, By Chris Park, Free",
+            "Team stand-up, 10:15 AM to 10:30 AM, Monday, October 26, 2026, Microsoft Teams Meeting, By Alex Morgan, Busy, Recurring event",
+        ]
+        let london = TimeZone(identifier: "Europe/London")!
+        let events = OutlookWebParser.events(fromScreenLabels: labels, timeZone: london)
+        XCTAssertEqual(events.map(\.title), [
+            "Team stand-up",
+            "Architecture open class (session 1)",
+            "Sprint close, retro & planning",
+            "Canceled: Retro",
+        ])
+
+        let standup = events[0]
+        // 26 Oct 2026 is after the UK clocks change, so London == UTC.
+        XCTAssertEqual(standup.start, ISO8601DateFormatter().date(from: "2026-10-26T10:15:00Z"))
+        XCTAssertEqual(standup.end, ISO8601DateFormatter().date(from: "2026-10-26T10:30:00Z"))
+        XCTAssertEqual(standup.key, OutlookWebParser.screenKey(title: "Team stand-up", start: standup.start))
+        XCTAssertNil(standup.meetingURL)
+
+        XCTAssertEqual(events[1].meetingURL?.host, "meet.google.com")
+        XCTAssertTrue(events[3].isCancelled)
+    }
 }
