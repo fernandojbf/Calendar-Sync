@@ -12,6 +12,7 @@ A tiny macOS menu bar app that copies meetings from your client calendars into y
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple&logoColor=white)
 ![Swift 5.9](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)
 ![Menu bar app](https://img.shields.io/badge/lives%20in-the%20menu%20bar-14B8A6)
+[![Homebrew tap](https://img.shields.io/badge/homebrew-neteinstein%2Ftap-FBB040?logo=homebrew&logoColor=white)](https://github.com/neteinstein/homebrew-tap)
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-8B5CF6)](LICENSE.md)
 
 <a href="https://github.com/neteinstein/Calendar-Sync/raw/main/docs/calendar-sync.mp4">
@@ -139,7 +140,7 @@ brew install neteinstein/tap/calendar-sync
 open "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app"
 ```
 
-The formula builds the app from source on your Mac (that's why it needs the Xcode command line tools), so there's nothing to sign or notarize. `brew install --HEAD neteinstein/tap/calendar-sync` builds the latest `main` instead of the pinned version.
+The formula lives in the [neteinstein/homebrew-tap](https://github.com/neteinstein/homebrew-tap) tap and builds the app from source on your Mac (that's why it needs the Xcode command line tools), so there's nothing to sign or notarize. `brew install --HEAD neteinstein/tap/calendar-sync` builds the latest `main` instead of the pinned version.
 
 - **Updating:** `brew update && brew upgrade calendar-sync`. Settings also warns you when a newer version is out, and its **Update** button shows these commands.
 - **Open at login:** copy the app into /Applications first, so the login item survives upgrades: `cp -a "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app" /Applications/`
@@ -188,18 +189,7 @@ The bundle identifier is `org.neteinstein.calendarsync`.
 
 <br>
 
-The tap is a public GitHub repository named `neteinstein/homebrew-tap`; the formula it serves is kept in this repo at [`packaging/homebrew/calendar-sync.rb`](packaging/homebrew/calendar-sync.rb).
-
-**One-time setup**
-
-1. Create a **public** repository called `homebrew-tap` under `neteinstein`.
-2. Copy `packaging/homebrew/calendar-sync.rb` into it as `Formula/calendar-sync.rb` and push to its default branch. That's the whole tap.
-3. Check it works:
-
-   ```bash
-   brew tap neteinstein/tap
-   brew install calendar-sync
-   ```
+The tap lives at [neteinstein/homebrew-tap](https://github.com/neteinstein/homebrew-tap): a public repository whose whole content is `Formula/calendar-sync.rb` on its default branch. The same formula is kept in this repo at [`packaging/homebrew/calendar-sync.rb`](packaging/homebrew/calendar-sync.rb) so changes to it are reviewed alongside the app.
 
 **Releasing a new version**
 
