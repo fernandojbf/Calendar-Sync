@@ -132,6 +132,15 @@ Every copy ends its notes with a tag like `calsync:v1:<source id>:<occurrence id
 
 You need **macOS 14 or later** and **Xcode 15+** (the command line tools are enough).
 
+With [Homebrew](https://brew.sh):
+
+```bash
+brew install neteinstein/tap/calendar-sync
+open "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app"
+```
+
+Or straight from source:
+
 ```bash
 git clone https://github.com/neteinstein/Calendar-Sync
 cd Calendar-Sync

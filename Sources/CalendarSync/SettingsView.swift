@@ -475,17 +475,28 @@ private struct UpdateInstructionsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
-    private let commands = """
-        cd Calendar-Sync
-        git pull
-        scripts/build-app.sh
-        open "build/Calendar Sync.app"
-        """
+    /// Running from Homebrew's cellar means it was installed with `brew`.
+    private var isHomebrewInstall: Bool {
+        Bundle.main.bundlePath.contains("/Cellar/")
+    }
+
+    private var commands: String {
+        isHomebrewInstall
+            ? "brew update\nbrew upgrade calendar-sync"
+            : """
+            cd Calendar-Sync
+            git pull
+            scripts/build-app.sh
+            open "build/Calendar Sync.app"
+            """
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Update to version \(latest.version)").font(.headline)
-            Text("Calendar Sync is built from source. Quit the app, then run this in Terminal, from the folder you cloned it into:")
+            Text(isHomebrewInstall
+                 ? "Calendar Sync was installed with Homebrew. Quit the app, then run this in Terminal:"
+                 : "Calendar Sync is built from source. Quit the app, then run this in Terminal, from the folder you cloned it into:")
                 .fixedSize(horizontal: false, vertical: true)
             GroupBox {
                 Text(commands)
@@ -494,7 +505,9 @@ private struct UpdateInstructionsSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(4)
             }
-            Text("That pulls the new version, rebuilds the app and opens it. Your settings are kept. Local builds are ad-hoc signed, so macOS asks for calendar access again after the rebuild.")
+            Text(isHomebrewInstall
+                 ? "Your settings are kept. The build is ad-hoc signed, so macOS asks for calendar access again after the upgrade."
+                 : "That pulls the new version, rebuilds the app and opens it. Your settings are kept. Local builds are ad-hoc signed, so macOS asks for calendar access again after the rebuild. Installed with Homebrew instead? Run “brew update && brew upgrade calendar-sync”.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
