@@ -1,5 +1,7 @@
 # Homebrew formula for Calendar Sync. Lives in the neteinstein/homebrew-tap repository as
-# Formula/calendar-sync.rb; the copy here is the source it's updated from.
+# Formula/calendar-sync.rb; the copy here is the source it's updated from. The tap's copy is
+# authoritative for url/version/sha256: a release can only be pinned there, after the commit
+# it points at exists, so this copy's pin is one release behind by nature.
 #
 # Install:
 #   brew install neteinstein/tap/calendar-sync         # pinned version below
