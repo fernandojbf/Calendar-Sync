@@ -25,6 +25,8 @@ private struct GeneralTab: View {
 
     var body: some View {
         Form {
+            UpdateBanner()
+
             Section {
                 Picker("Main calendar", selection: $settings.targetCalendarID) {
                     Text("Choose a calendar…").tag(String?.none)
@@ -373,10 +375,7 @@ private struct PreviewTab: View {
 
 private struct AuthorTab: View {
     @Environment(\.openURL) private var openURL
-
-    private var version: String? {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-    }
+    @EnvironmentObject private var updates: UpdateChecker
 
     var body: some View {
         VStack(spacing: 14) {
@@ -385,10 +384,10 @@ private struct AuthorTab: View {
                 .frame(width: 88, height: 88)
             VStack(spacing: 2) {
                 Text("Calendar Sync").font(.title2.bold())
-                if let version {
-                    Text("Version \(version)").foregroundStyle(.secondary)
-                }
+                Text("Version \(updates.currentVersion)").foregroundStyle(.secondary)
             }
+
+            UpdateStatus()
 
             VStack(spacing: 4) {
                 Text("Made by Pedro Vicente").font(.headline)
@@ -418,6 +417,113 @@ private struct AuthorTab: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Updates
+
+/// A warning row shown in the General tab while a newer version is published.
+private struct UpdateBanner: View {
+    @EnvironmentObject private var updates: UpdateChecker
+    @State private var showingInstructions = false
+
+    var body: some View {
+        if let latest = updates.available {
+            Section {
+                HStack {
+                    Label("Version \(latest.version) is available — you have \(updates.currentVersion).",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Spacer()
+                    Button("Update…") { showingInstructions = true }
+                }
+            }
+            .sheet(isPresented: $showingInstructions) { UpdateInstructionsSheet(latest: latest) }
+        }
+    }
+}
+
+/// The update line in the Author tab: the warning when a newer version is out, otherwise a
+/// manual check.
+private struct UpdateStatus: View {
+    @EnvironmentObject private var updates: UpdateChecker
+    @State private var showingInstructions = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let latest = updates.available {
+                Label("Version \(latest.version) is available", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Button("Update…") { showingInstructions = true }
+                    .sheet(isPresented: $showingInstructions) { UpdateInstructionsSheet(latest: latest) }
+            } else {
+                Button("Check for updates") { Task { await updates.check() } }
+                    .disabled(updates.isChecking)
+                if updates.isChecking {
+                    ProgressView().controlSize(.small)
+                } else if updates.lastChecked != nil {
+                    Text("Up to date.").foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+/// How to update: Calendar Sync is built from source, so the "update" is a pull and a rebuild.
+private struct UpdateInstructionsSheet: View {
+    let latest: UpdateCheck.Latest
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+
+    /// Running from Homebrew's cellar means it was installed with `brew`.
+    private var isHomebrewInstall: Bool {
+        Bundle.main.bundlePath.contains("/Cellar/")
+    }
+
+    private var commands: String {
+        isHomebrewInstall
+            ? "brew update\nbrew upgrade calendar-sync"
+            : """
+            cd Calendar-Sync
+            git pull
+            scripts/build-app.sh
+            open "build/Calendar Sync.app"
+            """
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Update to version \(latest.version)").font(.headline)
+            Text(isHomebrewInstall
+                 ? "Calendar Sync was installed with Homebrew. Quit the app, then run this in Terminal:"
+                 : "Calendar Sync is built from source. Quit the app, then run this in Terminal, from the folder you cloned it into:")
+                .fixedSize(horizontal: false, vertical: true)
+            GroupBox {
+                Text(commands)
+                    .font(.body.monospaced())
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(4)
+            }
+            Text(isHomebrewInstall
+                 ? "Your settings are kept. The build is ad-hoc signed, so macOS asks for calendar access again after the upgrade."
+                 : "That pulls the new version, rebuilds the app and opens it. Your settings are kept. Local builds are ad-hoc signed, so macOS asks for calendar access again after the rebuild. Installed with Homebrew instead? Run “brew update && brew upgrade calendar-sync”.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Copy commands") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(commands, forType: .string)
+                }
+                if let url = latest.url {
+                    Button("What's new on GitHub") { openURL(url) }
+                }
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 480)
     }
 }
 

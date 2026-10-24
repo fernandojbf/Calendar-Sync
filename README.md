@@ -91,6 +91,8 @@ Never miss a start: turn on the optional **full-screen alert** and the screen is
 
 Prefer the menu bar? Turn on **Show a calendar in the menu** and the icon gains **today's date**, while clicking it opens a **month view** (click a day for its events) or a **scrolling list** of your main calendar's events — it opens at the next event, and scrolling back shows past events dimmed. Events with a meeting link get a join button right in the list.
 
+Settings also shows the app **version** and checks GitHub once a day for a newer one (the newest release, or the version on `main` while there are no releases). When there is one, a warning appears with an **Update** button that shows the pull-and-rebuild instructions.
+
 It syncs **every 15 minutes** by default; set any interval from 1 minute to 24 hours, and give a client calendar **its own interval** when it should sync more or less often than the rest (say, Outlook on the web hourly). Calendar.app calendars also sync about 10 seconds after a change. Settings has a **preview** that shows what the next sync would change before it changes anything.
 
 ## How it works
@@ -130,12 +132,29 @@ Every copy ends its notes with a tag like `calsync:v1:<source id>:<occurrence id
 
 You need **macOS 14 or later** and **Xcode 15+** (the command line tools are enough).
 
+### With [Homebrew](https://brew.sh)
+
+```bash
+brew install neteinstein/tap/calendar-sync
+open "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app"
+```
+
+The formula builds the app from source on your Mac (that's why it needs the Xcode command line tools), so there's nothing to sign or notarize. `brew install --HEAD neteinstein/tap/calendar-sync` builds the latest `main` instead of the pinned version.
+
+- **Updating:** `brew update && brew upgrade calendar-sync`. Settings also warns you when a newer version is out, and its **Update** button shows these commands.
+- **Open at login:** copy the app into /Applications first, so the login item survives upgrades: `cp -a "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app" /Applications/`
+- Upgrades are ad-hoc signed builds, so macOS asks for calendar access again after each one. Your settings are kept.
+
+### From source
+
 ```bash
 git clone https://github.com/neteinstein/Calendar-Sync
 cd Calendar-Sync
 scripts/build-app.sh
 open "build/Calendar Sync.app"
 ```
+
+To update later: quit the app, then `git pull && scripts/build-app.sh` and reopen it.
 
 Allow calendar access on first launch. Then open **Settings…** from the menu bar icon:
 
@@ -161,6 +180,37 @@ xcrun stapler staple "build/Calendar Sync.app"
 ```
 
 The bundle identifier is `org.neteinstein.calendarsync`.
+
+</details>
+
+<details>
+<summary><b>Publishing the Homebrew tap (maintainer)</b></summary>
+
+<br>
+
+The tap is a public GitHub repository named `neteinstein/homebrew-tap`; the formula it serves is kept in this repo at [`packaging/homebrew/calendar-sync.rb`](packaging/homebrew/calendar-sync.rb).
+
+**One-time setup**
+
+1. Create a **public** repository called `homebrew-tap` under `neteinstein`.
+2. Copy `packaging/homebrew/calendar-sync.rb` into it as `Formula/calendar-sync.rb` and push to its default branch. That's the whole tap.
+3. Check it works:
+
+   ```bash
+   brew tap neteinstein/tap
+   brew install calendar-sync
+   ```
+
+**Releasing a new version**
+
+1. Bump `CFBundleShortVersionString` in `Support/Info.plist` and merge to `main`. (This is also what makes installed apps show the update warning in Settings.)
+2. In the tap's `Formula/calendar-sync.rb`, set:
+   - `url` to `https://github.com/neteinstein/Calendar-Sync/archive/<commit>.tar.gz` — or `refs/tags/vX.Y.Z.tar.gz` once releases are tagged, and then the `version` line can go;
+   - `version` to the new version;
+   - `sha256` to the output of `curl -L <url> | shasum -a 256`.
+3. Update the copy in `packaging/homebrew/` to match, so the two don't drift.
+
+Users pick the new version up with `brew update && brew upgrade calendar-sync`.
 
 </details>
 
