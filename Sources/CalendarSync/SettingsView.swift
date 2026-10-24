@@ -50,6 +50,19 @@ private struct GeneralTab: View {
             }
 
             Section {
+                Toggle("Show a full-screen alert when an event starts", isOn: $settings.alerts.enabled)
+                if settings.alerts.enabled {
+                    Stepper(settings.alerts.leadMinutes == 0
+                            ? "Show it when the event starts"
+                            : "Show it \(settings.alerts.leadMinutes) \(settings.alerts.leadMinutes == 1 ? "minute" : "minutes") before the start",
+                            value: $settings.alerts.leadMinutes, in: 0...15)
+                }
+            } footer: {
+                Text("Covers the screen when a meeting in your main calendar begins, with buttons to join the call, go to the room, or ignore it. Each meeting alerts once; a meeting already under way alerts until it ends.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Open at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
                         do {

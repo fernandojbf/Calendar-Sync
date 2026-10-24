@@ -87,6 +87,8 @@ Optional, per client calendar. Your main calendar's events are added to the clie
 
 It also lets you **skip meetings you declined**, **skip all-day events** and **skip out-of-office events** (on by default). Per client calendar, copies can also get the meeting's **location and description**.
 
+Never miss a start: turn on the optional **full-screen alert** and the screen is covered when a main-calendar meeting begins (or up to 15 minutes before), with buttons to **Join call** (⏎), **Go to** the room, or **Ignore** (⎋). Meetings copied from client calendars alert too, join link included, and each meeting alerts once.
+
 It syncs **every 15 minutes** by default; set any interval from 1 minute to 24 hours, and give a client calendar **its own interval** when it should sync more or less often than the rest (say, Outlook on the web hourly). Calendar.app calendars also sync about 10 seconds after a change. Settings has a **preview** that shows what the next sync would change before it changes anything.
 
 ## How it works
@@ -135,7 +137,7 @@ open "build/Calendar Sync.app"
 
 Allow calendar access on first launch. Then open **Settings…** from the menu bar icon:
 
-1. **General:** choose your **main calendar** (the one meetings are copied into), how many days ahead, and how often to sync.
+1. **General:** choose your **main calendar** (the one meetings are copied into), how many days ahead, and how often to sync. Turn on the **full-screen alert** here if you want one when each meeting starts.
 2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name. Optionally turn on **Copy location and description**, **Use its own sync interval**, or **Show my main calendar here as “Busy”** for any client that should see when you're busy — shown as **Busy** or **Out of office**, whichever you pick.
 3. **Preview:** see what a sync would change, then let it run.
 
