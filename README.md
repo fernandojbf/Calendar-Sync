@@ -91,6 +91,8 @@ Never miss a start: turn on the optional **full-screen alert** and the screen is
 
 Prefer the menu bar? Turn on **Show a calendar in the menu** and the icon gains **today's date**, while clicking it opens a **month view** (click a day for its events) or a **scrolling list** of your main calendar's events — it opens at the next event, and scrolling back shows past events dimmed. Events with a meeting link get a join button right in the list.
 
+Settings also shows the app **version** and checks GitHub once a day for a newer one (the newest release, or the version on `main` while there are no releases). When there is one, a warning appears with an **Update** button that shows the pull-and-rebuild instructions.
+
 It syncs **every 15 minutes** by default; set any interval from 1 minute to 24 hours, and give a client calendar **its own interval** when it should sync more or less often than the rest (say, Outlook on the web hourly). Calendar.app calendars also sync about 10 seconds after a change. Settings has a **preview** that shows what the next sync would change before it changes anything.
 
 ## How it works

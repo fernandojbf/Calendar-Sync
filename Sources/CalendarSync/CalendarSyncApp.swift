@@ -5,6 +5,7 @@ struct CalendarSyncApp: App {
     @StateObject private var settings: SettingsStore
     @StateObject private var controller: SyncController
     @StateObject private var alerts: EventAlertController
+    @StateObject private var updates = UpdateChecker()
 
     init() {
         let settings = SettingsStore()
@@ -49,6 +50,7 @@ struct CalendarSyncApp: App {
             SettingsView()
                 .environmentObject(settings)
                 .environmentObject(controller)
+                .environmentObject(updates)
         }
     }
 }
