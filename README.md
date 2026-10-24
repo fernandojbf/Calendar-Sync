@@ -25,6 +25,17 @@ A tiny macOS menu bar app that copies meetings from your client calendars into y
 
 ---
 
+## Install
+
+With [Homebrew](https://brew.sh/)
+
+```bash
+brew install neteinstein/tap/calendar-sync
+open "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app"
+```
+
+Needs macOS 14+ and the Xcode command line tools. See [Get started](#get-started) for updating, building from source and first-run setup.
+
 ## Why
 
 Booked solid at the client. Wide open in your main calendar.
@@ -135,12 +146,7 @@ You need **macOS 14 or later** and **Xcode 15+** (the command line tools are eno
 
 ### With [Homebrew](https://brew.sh)
 
-```bash
-brew install neteinstein/tap/calendar-sync
-open "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app"
-```
-
-The formula lives in the [neteinstein/homebrew-tap](https://github.com/neteinstein/homebrew-tap) tap and builds the app from source on your Mac (that's why it needs the Xcode command line tools), so there's nothing to sign or notarize. `brew install --HEAD neteinstein/tap/calendar-sync` builds the latest `main` instead of the pinned version.
+Install with the two commands under [Install](#install). The formula lives in the [neteinstein/homebrew-tap](https://github.com/neteinstein/homebrew-tap) tap and builds the app from source on your Mac (that's why it needs the Xcode command line tools), so there's nothing to sign or notarize. `brew install --HEAD neteinstein/tap/calendar-sync` builds the latest `main` instead of the pinned version.
 
 - **Updating:** `brew update && brew upgrade calendar-sync`. Settings also warns you when a newer version is out, and its **Update** button shows these commands.
 - **Open at login:** copy the app into /Applications first, so the login item survives upgrades: `cp -a "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app" /Applications/`
