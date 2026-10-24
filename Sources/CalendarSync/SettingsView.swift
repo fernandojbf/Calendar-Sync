@@ -164,12 +164,24 @@ private struct SourceRow: View {
         return source.calendarName
     }
 
+    /// A copy's title as CopyFormatter builds it: no brackets when the name is empty.
+    private func copyTitle(_ meeting: String) -> String {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? meeting : "[\(name)] \(meeting)"
+    }
+
     var body: some View {
         Section {
             if source.kind == .outlookWeb {
-                TextField("Calendar name", text: $source.calendarName, prompt: Text("e.g. Calendar A"))
+                // Bordered and named after what it changes: as a plain form row it read as a fixed value.
+                TextField("Prefix for copies", text: $source.calendarName, prompt: Text("e.g. client name"))
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: 240)
+                    // The value is saved as it's typed; Return just leaves the field.
+                    .onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }
             }
-            Toggle("Hide meeting names (copy as “[\(displayName)] Busy”)", isOn: $source.hideMeetingName)
+            Toggle("Hide meeting names (copy as “\(copyTitle("Busy"))”)", isOn: $source.hideMeetingName)
             Toggle("Copy location and description", isOn: $source.copyDetails)
                 .disabled(source.hideMeetingName)
             Toggle("Sync this calendar", isOn: $source.isEnabled)
@@ -229,7 +241,7 @@ private struct SourceRow: View {
     }
 
     private var footer: String {
-        var text = "Copies are titled “[\(displayName)] \(source.hideMeetingName ? "Busy" : "Meeting name")” and include the meeting link when there is one."
+        var text = "Copies are titled “\(copyTitle(source.hideMeetingName ? "Busy" : "Meeting name"))” and include the meeting link when there is one."
         if source.copyDetails {
             text += source.hideMeetingName
                 ? " Location and description aren't copied while meeting names are hidden."
