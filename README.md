@@ -172,44 +172,6 @@ Allow calendar access on first launch. Then open **Settings…** from the menu b
 > [!NOTE]
 > Local builds are ad-hoc signed, so macOS asks for calendar access again after each rebuild.
 
-<details>
-<summary><b>Sharing a signed build with colleagues</b></summary>
-
-<br>
-
-To install without Gatekeeper warnings, the app needs a Developer ID certificate (Apple Developer Program, $99/year) and notarization:
-
-```bash
-SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" UNIVERSAL=1 scripts/build-app.sh
-ditto -c -k --keepParent "build/Calendar Sync.app" CalendarSync.zip
-xcrun notarytool submit CalendarSync.zip --keychain-profile <profile> --wait
-xcrun stapler staple "build/Calendar Sync.app"
-```
-
-The bundle identifier is `org.neteinstein.calendarsync`.
-
-</details>
-
-<details>
-<summary><b>Publishing the Homebrew tap (maintainer)</b></summary>
-
-<br>
-
-The tap lives at [neteinstein/homebrew-tap](https://github.com/neteinstein/homebrew-tap): a public repository whose whole content is `Formula/calendar-sync.rb` on its default branch. The same formula is kept in this repo at [`packaging/homebrew/calendar-sync.rb`](packaging/homebrew/calendar-sync.rb) so changes to it are reviewed alongside the app.
-
-**Releasing a new version**
-
-1. Bump `CFBundleShortVersionString` in `Support/Info.plist` and merge to `main`. (This is also what makes installed apps show the update warning in Settings.)
-2. In the tap's `Formula/calendar-sync.rb`, set:
-   - `url` to `https://github.com/neteinstein/Calendar-Sync/archive/<commit>.tar.gz` — or `refs/tags/vX.Y.Z.tar.gz` once releases are tagged, and then the `version` line can go;
-   - `version` to the new version;
-   - `sha256` to the output of `curl -L <url> | shasum -a 256`.
-3. Update the copy in `packaging/homebrew/` to match, so the two don't drift.
-
-Users pick the new version up with `brew update && brew upgrade calendar-sync`.
-
-</details>
-
 ## Development
 
 ```bash
