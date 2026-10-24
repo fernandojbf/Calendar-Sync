@@ -84,6 +84,11 @@ final class OutlookWebSource: NSObject, ObservableObject {
 
     func fetch(from start: Date, to end: Date) async -> SourceFetchResult {
         guard !isFetching else { return .failure("Already reading Outlook") }
+        // Loading would navigate away from whatever the user is doing in the window
+        // (e.g. signing in), so wait until it's closed.
+        if window?.isVisible == true {
+            return .failure("Outlook window is open. Close it after signing in to sync.")
+        }
         isFetching = true
         defer { isFetching = false }
 
