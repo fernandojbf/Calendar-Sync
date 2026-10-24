@@ -50,6 +50,13 @@ private struct GeneralTab: View {
             }
 
             Section {
+                Toggle("Show a calendar in the menu", isOn: $settings.menuCalendarEnabled)
+            } footer: {
+                Text("The menu bar button opens a month view — click a day for its events — or a scrolling list of your main calendar's events, and the menu bar icon shows today's date.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Show a full-screen alert when an event starts", isOn: $settings.alerts.enabled)
                 if settings.alerts.enabled {
                     Stepper(settings.alerts.leadMinutes == 0
