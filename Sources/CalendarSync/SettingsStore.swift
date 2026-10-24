@@ -6,6 +6,9 @@ import Foundation
 final class SettingsStore: ObservableObject {
     @Published var sources: [SourceConfig] { didSet { save(sources, "sources") } }
     @Published var options: SyncOptions { didSet { save(options, "options") } }
+    @Published var alerts: EventAlertOptions { didSet { save(alerts, "alerts") } }
+    /// The menu bar button opens a month view / event list, and the icon shows today's date.
+    @Published var menuCalendarEnabled: Bool { didSet { defaults.set(menuCalendarEnabled, forKey: "menuCalendarEnabled") } }
     @Published var targetCalendarID: String? { didSet { defaults.set(targetCalendarID, forKey: "targetCalendarID") } }
     @Published var intervalMinutes: Int { didSet { defaults.set(intervalMinutes, forKey: "intervalMinutes") } }
 
@@ -15,6 +18,8 @@ final class SettingsStore: ObservableObject {
         self.defaults = defaults
         sources = Self.load([SourceConfig].self, "sources", defaults) ?? []
         options = Self.load(SyncOptions.self, "options", defaults) ?? SyncOptions()
+        alerts = Self.load(EventAlertOptions.self, "alerts", defaults) ?? EventAlertOptions()
+        menuCalendarEnabled = defaults.bool(forKey: "menuCalendarEnabled")
         targetCalendarID = defaults.string(forKey: "targetCalendarID")
         let interval = defaults.integer(forKey: "intervalMinutes")
         intervalMinutes = interval > 0 ? interval : 15

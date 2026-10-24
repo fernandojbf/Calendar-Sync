@@ -8,7 +8,12 @@ struct MenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Calendar Sync").font(.headline)
+            if settings.menuCalendarEnabled {
+                MenuCalendarView()
+                Divider()
+            } else {
+                Text("Calendar Sync").font(.headline)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(controller.isSyncing ? "Syncing…" : controller.lastSummary)
@@ -56,6 +61,6 @@ struct MenuView: View {
                 .font(.callout)
         }
         .padding(14)
-        .frame(width: 320)
+        .frame(width: settings.menuCalendarEnabled ? 360 : 320)
     }
 }

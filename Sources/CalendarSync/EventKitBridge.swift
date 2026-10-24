@@ -146,7 +146,9 @@ final class EventKitBridge {
         event.url = spec.url
         event.notes = spec.notes
         event.location = spec.location
-        if calendar.supportedEventAvailabilities.contains(.busy) {
+        if spec.isOutOfOffice, calendar.supportedEventAvailabilities.contains(.unavailable) {
+            event.availability = .unavailable
+        } else if calendar.supportedEventAvailabilities.contains(.busy) {
             event.availability = .busy
         }
     }

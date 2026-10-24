@@ -50,6 +50,26 @@ private struct GeneralTab: View {
             }
 
             Section {
+                Toggle("Show a calendar in the menu", isOn: $settings.menuCalendarEnabled)
+            } footer: {
+                Text("The menu bar button opens a month view — click a day for its events — or a scrolling list of your main calendar's events, and the menu bar icon shows today's date.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Show a full-screen alert when an event starts", isOn: $settings.alerts.enabled)
+                if settings.alerts.enabled {
+                    Stepper(settings.alerts.leadMinutes == 0
+                            ? "Show it when the event starts"
+                            : "Show it \(settings.alerts.leadMinutes) \(settings.alerts.leadMinutes == 1 ? "minute" : "minutes") before the start",
+                            value: $settings.alerts.leadMinutes, in: 0...15)
+                }
+            } footer: {
+                Text("Covers the screen when a meeting in your main calendar begins, with buttons to join the call, go to the room, or ignore it. Each meeting alerts once; a meeting already under way alerts until it ends.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Open at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
                         do {
@@ -161,9 +181,18 @@ private struct SourceRow: View {
             }
             if case .eventKit(let calendarID) = source.kind {
                 let writable = controller.eventKit.calendar(id: calendarID)?.allowsContentModifications ?? false
-                Toggle("Show my main calendar here as “Busy”", isOn: $source.showBusyInClient)
+                Toggle("Show my main calendar here as “\(source.busyStyle.title)”", isOn: $source.showBusyInClient)
                     .disabled(!writable && !source.showBusyInClient)
                     .onChange(of: source.showBusyInClient) { _, _ in Task { await controller.sync() } }
+                if source.showBusyInClient {
+                    Picker("Show it as", selection: $source.busyStyle) {
+                        ForEach(BusyStyle.allCases, id: \.self) { style in
+                            Text(style.title).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: source.busyStyle) { _, _ in Task { await controller.sync() } }
+                }
                 if !writable {
                     Text("This calendar is read-only, so Busy events can't be added to it.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -205,7 +234,7 @@ private struct SourceRow: View {
                 : " The location and description are copied too."
         }
         if source.showBusyInClient {
-            text += " Your main calendar's events also appear here as “Busy”, with no other details."
+            text += " Your main calendar's events also appear here as “\(source.busyStyle.title)”, with no other details."
         }
         let minutes = SyncSchedule.interval(for: source, defaultMinutes: settings.intervalMinutes)
         text += " Synced every \(minutes) \(minutes == 1 ? "minute" : "minutes")"
