@@ -79,6 +79,65 @@ public enum OutlookWebParser {
         return result
     }
 
+    // MARK: - Meetings on screen
+
+    /// Key for a meeting read from Outlook on the web: title + start. Outlook's own item ids
+    /// aren't available when a week is read from the page, so every meeting uses this key,
+    /// whichever way it was read, and a copy doesn't flip between two keys. A moved meeting
+    /// gets a new key: its copy is replaced instead of updated.
+    public static func screenKey(title: String, start: Date) -> String {
+        "outlook:" + title + "|" + ISO8601DateFormatter().string(from: start)
+    }
+
+    /// Parses the description Outlook on the web gives each meeting on screen (its
+    /// accessibility label), e.g. "Team stand-up, 10:15 AM to 10:30 AM, Monday, October 26,
+    /// 2026, Microsoft Teams Meeting, By Alex Morgan, Busy, Recurring event".
+    ///
+    /// Used when a week's data can't be captured. All-day events, meetings spanning several
+    /// days and labels in other languages are skipped. Teams links aren't in the label, so
+    /// only links written out in it (e.g. Google Meet) are kept.
+    public static func events(fromScreenLabels labels: [String], timeZone: TimeZone = .current) -> [SourceEvent] {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = timeZone
+        f.dateFormat = "MMMM d, yyyy h:mm a"
+
+        var seen: Set<String> = []
+        var result: [SourceEvent] = []
+        for raw in labels {
+            let label = raw.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            let range = NSRange(label.startIndex..., in: label)
+            guard let m = screenLabelRegex.firstMatch(in: label, range: range),
+                  let title = Range(m.range(at: 1), in: label).map({ String(label[$0]).trimmingCharacters(in: .whitespaces) }),
+                  let startTime = Range(m.range(at: 2), in: label).map({ String(label[$0]) }),
+                  let endTime = Range(m.range(at: 3), in: label).map({ String(label[$0]) }),
+                  let day = Range(m.range(at: 4), in: label).map({ String(label[$0]) }),
+                  let start = f.date(from: day + " " + startTime),
+                  var end = f.date(from: day + " " + endTime)
+            else { continue }
+            if end < start { end = end.addingTimeInterval(86400) } // ends after midnight
+            let rest = Range(m.range(at: 5), in: label).map { String(label[$0]) } ?? ""
+
+            let lowered = title.lowercased()
+            let key = screenKey(title: title, start: start)
+            guard seen.insert(key).inserted else { continue }
+            result.append(SourceEvent(
+                key: key,
+                title: title,
+                start: start,
+                end: end,
+                isCancelled: lowered.hasPrefix("canceled:") || lowered.hasPrefix("cancelled:"),
+                meetingURL: MeetingLink.firstMeetingLink(in: rest)
+            ))
+        }
+        return result.sorted { $0.start < $1.start }
+    }
+
+    /// "<title>, <h:mm AM> to <h:mm PM>, <Weekday>, <Month d, yyyy><, rest>"
+    private static let screenLabelRegex = try! NSRegularExpression(
+        pattern: #"^(.+?), (\d{1,2}:\d{2} [AP]M) to (\d{1,2}:\d{2} [AP]M), (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), ([A-Z][a-z]+ \d{1,2}, \d{4})(.*)$"#)
+
     // MARK: - One event
 
     static func event(from obj: Obj, detail: Obj? = nil) -> SourceEvent? {

@@ -84,22 +84,54 @@ final class OutlookWebSource: NSObject, ObservableObject {
 
     func fetch(from start: Date, to end: Date) async -> SourceFetchResult {
         guard !isFetching else { return .failure("Already reading Outlook") }
+        // Loading would navigate away from whatever the user is doing in the window
+        // (e.g. signing in), so wait until it's closed.
+        if window?.isVisible == true {
+            return .failure("Outlook window is open. Close it after signing in to sync.")
+        }
         isFetching = true
         defer { isFetching = false }
 
         captured = []
-        // The week view only loads one week, so load every week the sync window touches.
-        for weekStart in Self.weekStarts(from: start, to: end) {
+        var onScreen: [SourceEvent] = []
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2 // Monday
+        // The week view only loads one week, so read every week the sync window touches.
+        // Outlook ignores the date in the URL and opens the current week, so load that and
+        // move on with Outlook's own "next week" button.
+        for (index, weekStart) in Self.weekStarts(from: start, to: end).enumerated() {
             let before = captured.count
             lastCaptureAt = .distantPast
-            webView.load(URLRequest(url: Self.weekURL(for: weekStart)))
-            await waitForCalendarData(after: before)
+            if index == 0 {
+                webView.load(URLRequest(url: Self.weekURL(for: weekStart)))
+            } else {
+                // The first week's data arrives before Outlook has finished starting up; a
+                // click that early can move the page without its data ever being requested.
+                if index == 1 { try? await Task.sleep(nanoseconds: 5_000_000_000) }
+                if await !clickNextWeek() {
+                    return .failure("Couldn't move to the next week in Outlook.")
+                }
+            }
+            // Check against the whole week: Outlook loads all of it, including days already
+            // past (on a weekend the work week view shows the week just ended).
+            let week = calendar.dateInterval(of: .weekOfYear, for: weekStart)
+            let weekFrom = week?.start ?? weekStart, weekTo = week?.end ?? end
+            var loaded = await waitForCalendarData(after: before, from: weekFrom, to: weekTo)
 
             if isSignInPage(webView.url) {
                 needsSignIn = true
                 return .failure("Signed out of Outlook. Open the Outlook window to sign in again.")
             }
-            if captured.count == before {
+            // Outlook doesn't always fetch a week in a way we can capture (it can come from a
+            // background worker). The meetings it shows on the page are always there.
+            if !loaded {
+                let shown = await meetingsOnScreen(from: weekFrom, to: weekTo)
+                onScreen += shown
+                loaded = !shown.isEmpty
+            }
+            // No meeting in the week almost always means its data didn't load (Outlook can
+            // answer with another week). Fail, so existing copies are left alone.
+            if !loaded {
                 return .failure("Couldn't read the Outlook calendar (no calendar data loaded).")
             }
         }
@@ -107,7 +139,16 @@ final class OutlookWebSource: NSObject, ObservableObject {
         needsSignIn = false
         let itemIDs = OutlookWebParser.itemIDs(fromPayloads: captured)
         let details = await loadDetails(itemIDs: itemIDs)
-        let events = OutlookWebParser.events(fromPayloads: captured, details: details)
+        // Captured data first: it has more detail (meeting links, declined, all day).
+        var seen: Set<String> = []
+        let events = (OutlookWebParser.events(fromPayloads: captured, details: details) + onScreen)
+            .map { event -> SourceEvent in
+                var event = event
+                event.title = event.title.trimmingCharacters(in: .whitespaces)
+                event.key = OutlookWebParser.screenKey(title: event.title, start: event.start)
+                return event
+            }
+            .filter { seen.insert($0.key).inserted }
             .filter { $0.end > start && $0.start < end }
         let withLinks = events.filter { $0.meetingURL != nil }.count
         NSLog("Calendar Sync: Outlook \(events.count) meetings, \(details.count) detail responses, \(withLinks) with a meeting link")
@@ -127,14 +168,57 @@ final class OutlookWebSource: NSObject, ObservableObject {
         }
     }
 
-    /// Waits until Outlook has downloaded calendar data and gone quiet for 3 s, up to 30 s.
-    private func waitForCalendarData(after before: Int) async {
-        let deadline = Date().addingTimeInterval(30)
+    /// Reads the meetings Outlook shows for `[from, to)` from the page, waiting up to 10 s
+    /// for them to render.
+    private func meetingsOnScreen(from: Date, to: Date) async -> [SourceEvent] {
+        let script = "[...document.querySelectorAll('[aria-label]')].map(e => e.getAttribute('aria-label'))"
+        for _ in 0..<10 {
+            let labels = (try? await webView.evaluateJavaScript(script) as? [String]) ?? []
+            let events = OutlookWebParser.events(fromScreenLabels: labels)
+                .filter { $0.start >= from && $0.start < to }
+            if !events.isEmpty { return events }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        return []
+    }
+
+    /// Waits until Outlook has downloaded a meeting starting in `[from, to)` and gone quiet
+    /// for 3 s, up to 15 s. Returns whether that data arrived.
+    private func waitForCalendarData(after before: Int, from: Date, to: Date) async -> Bool {
+        let deadline = Date().addingTimeInterval(15)
+        var checked = before
+        var loaded = false
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 500_000_000)
-            if isSignInPage(webView.url) { return }
-            if captured.count > before, Date().timeIntervalSince(lastCaptureAt) > 3 { return }
+            if isSignInPage(webView.url) { return false }
+            if !loaded, captured.count > checked {
+                loaded = OutlookWebParser.events(fromPayloads: Array(captured[checked...]))
+                    .contains { $0.start >= from && $0.start < to }
+                checked = captured.count
+            }
+            if loaded, Date().timeIntervalSince(lastCaptureAt) > 3 { return true }
         }
+        return loaded
+    }
+
+    /// Clicks Outlook's "next week" button, waiting up to 5 s for it to render. Clicked once
+    /// only: each click moves another week.
+    private func clickNextWeek() async -> Bool {
+        let script = """
+        (() => {
+          const button = [...document.querySelectorAll('button[aria-label]')]
+            // The label can carry the target dates: "Go to next week October 26–30, 2026".
+            .find(b => /^(go to )?next (work ?)?week\\b/i.test(b.getAttribute('aria-label').trim()));
+          if (!button) return false;
+          button.click();
+          return true;
+        })()
+        """
+        for _ in 0..<5 {
+            if (try? await webView.evaluateJavaScript(script) as? Bool) == true { return true }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        return false
     }
 
     private func isSignInPage(_ url: URL?) -> Bool {
@@ -176,7 +260,9 @@ final class OutlookWebSource: NSObject, ObservableObject {
     (function () {
       if (window.__calsync) return;
       window.__calsync = true;
-      const RX = /calendarview|getcalendarview|finditem|calendaritem|startupdata|\/events/i;
+      // graphql carries the weeks after the first one. SaveCalendarView only stores which
+      // view is shown and has no events.
+      const RX = /^(?!.*savecalendarview).*(calendarview|finditem|calendaritem|startupdata|\/events|graphql)/i;
       const MAX = 8 * 1024 * 1024;
       function send(url, text) {
         try {
