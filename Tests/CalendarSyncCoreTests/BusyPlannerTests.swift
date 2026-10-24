@@ -39,6 +39,34 @@ final class BusyPlannerTests: XCTestCase {
         XCTAssertEqual(CopyMarker.find(in: spec.notes)?.sourceID, clientA.id)
     }
 
+    func testOutOfOfficeStyleCarriesNoDetailsEither() {
+        var client = clientA
+        client.busyStyle = .outOfOffice
+        let plan = SyncPlanner.planBusy(for: client, mainEvents: .success([event("m1", "Salary review with HR", at: 2)]),
+                                        existing: [], options: SyncOptions())
+        XCTAssertEqual(plan.creates, 1)
+        guard case .create(let spec) = plan.actions[0] else { return XCTFail() }
+        XCTAssertEqual(spec.title, "Out of office")
+        XCTAssertTrue(spec.isOutOfOffice)
+        XCTAssertNil(spec.url)
+        XCTAssertEqual(spec.notes, spec.marker.encoded, "notes hold only the hidden marker")
+        XCTAssertFalse(spec.notes.localizedCaseInsensitiveContains("salary"))
+    }
+
+    func testSwitchingStyleUpdatesExistingCopies() {
+        let main = [event("m1", "A", at: 1)]
+        let first = SyncPlanner.planBusy(for: clientA, mainEvents: .success(main), existing: [], options: SyncOptions())
+        var client = clientA
+        client.busyStyle = .outOfOffice
+        let switched = SyncPlanner.planBusy(for: client, mainEvents: .success(main),
+                                            existing: copies(from: first), options: SyncOptions())
+        XCTAssertEqual(switched.updates, 1, "the same marker is kept, only the title changes")
+        XCTAssertEqual(switched.creates, 0)
+        XCTAssertEqual(switched.deletes, 0)
+        guard case .update(_, let spec) = switched.actions[0] else { return XCTFail() }
+        XCTAssertEqual(spec.title, "Out of office")
+    }
+
     func testSkipsCopiesOfTheSameClientButShowsOtherClients() {
         let main = [copyOf(clientA, key: "a1", at: 1), copyOf(clientB, key: "b1", at: 3), event("own", "Dentist", at: 5)]
         let plan = SyncPlanner.planBusy(for: clientA, mainEvents: .success(main), existing: [], options: SyncOptions())
@@ -97,8 +125,11 @@ final class BusyPlannerTests: XCTestCase {
         let old = #"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","kind":{"outlookWeb":{}},"calendarName":"Calendar B","hideMeetingName":true,"isEnabled":true}"#
         let decoded = try JSONDecoder().decode(SourceConfig.self, from: Data(old.utf8))
         XCTAssertFalse(decoded.showBusyInClient)
+        XCTAssertEqual(decoded.busyStyle, .busy)
         XCTAssertTrue(decoded.hideMeetingName)
-        let roundTrip = try JSONDecoder().decode(SourceConfig.self, from: JSONEncoder().encode(clientA))
-        XCTAssertEqual(roundTrip, clientA)
+        var ooo = clientA
+        ooo.busyStyle = .outOfOffice
+        let roundTrip = try JSONDecoder().decode(SourceConfig.self, from: JSONEncoder().encode(ooo))
+        XCTAssertEqual(roundTrip, ooo)
     }
 }

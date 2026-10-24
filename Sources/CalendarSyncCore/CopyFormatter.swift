@@ -35,20 +35,21 @@ public enum CopyFormatter {
         return (notes?.isEmpty == false ? notes : nil, location?.isEmpty == false ? location : nil)
     }
 
-    /// A main-calendar event shown in a client calendar: the time and "Busy", nothing else.
-    /// The notes hold only the hidden marker, whose key is a hash so it reveals nothing about
-    /// the original event.
+    /// A main-calendar event shown in a client calendar: the time and "Busy" (or "Out of
+    /// office"), nothing else. The notes hold only the hidden marker, whose key is a hash so
+    /// it reveals nothing about the original event.
     public static func busySpec(for event: SourceEvent, source: SourceConfig) -> CopySpec {
         let marker = CopyMarker(sourceID: source.id, key: "busy-" + stableHash(event.key))
         return CopySpec(
             marker: marker,
-            title: "Busy",
+            title: source.busyStyle.title,
             start: event.start,
             end: event.end,
             isAllDay: event.isAllDay,
             timeZone: event.isAllDay ? nil : event.timeZone,
             url: nil,
-            notes: marker.encoded
+            notes: marker.encoded,
+            isOutOfOffice: source.busyStyle == .outOfOffice
         )
     }
 

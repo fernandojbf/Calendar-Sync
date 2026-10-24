@@ -79,7 +79,7 @@ It never copies attendees, so no invites go out. It never copies its own copies 
 <td colspan="2" valign="top">
 
 ### ↩️ Show your main calendar as Busy at the client
-Optional, per client calendar. Your main calendar's events are added to the client calendar as plain **Busy** events, with the time and nothing else: no title, link, location or attendees. Copies of that client's own meetings are skipped, and meetings copied from other clients do show, so each client sees the time the others have booked. It needs a client calendar you can edit in Calendar.app; Outlook on the web and `.ics` link calendars are read-only.
+Optional, per client calendar. Your main calendar's events are added to the client calendar as plain **Busy** events — or **Out of office**, your pick — with the time and nothing else: no title, link, location or attendees. Copies of that client's own meetings are skipped, and meetings copied from other clients do show, so each client sees the time the others have booked. It needs a client calendar you can edit in Calendar.app; Outlook on the web and `.ics` link calendars are read-only.
 
 </td>
 </tr>
@@ -136,7 +136,7 @@ open "build/Calendar Sync.app"
 Allow calendar access on first launch. Then open **Settings…** from the menu bar icon:
 
 1. **General:** choose your **main calendar** (the one meetings are copied into), how many days ahead, and how often to sync.
-2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name. Optionally turn on **Copy location and description**, **Use its own sync interval**, or **Show my main calendar here as “Busy”** for any client that should see when you're busy.
+2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name. Optionally turn on **Copy location and description**, **Use its own sync interval**, or **Show my main calendar here as “Busy”** for any client that should see when you're busy — shown as **Busy** or **Out of office**, whichever you pick.
 3. **Preview:** see what a sync would change, then let it run.
 
 > [!NOTE]

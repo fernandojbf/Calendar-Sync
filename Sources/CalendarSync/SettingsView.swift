@@ -161,9 +161,18 @@ private struct SourceRow: View {
             }
             if case .eventKit(let calendarID) = source.kind {
                 let writable = controller.eventKit.calendar(id: calendarID)?.allowsContentModifications ?? false
-                Toggle("Show my main calendar here as “Busy”", isOn: $source.showBusyInClient)
+                Toggle("Show my main calendar here as “\(source.busyStyle.title)”", isOn: $source.showBusyInClient)
                     .disabled(!writable && !source.showBusyInClient)
                     .onChange(of: source.showBusyInClient) { _, _ in Task { await controller.sync() } }
+                if source.showBusyInClient {
+                    Picker("Show it as", selection: $source.busyStyle) {
+                        ForEach(BusyStyle.allCases, id: \.self) { style in
+                            Text(style.title).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: source.busyStyle) { _, _ in Task { await controller.sync() } }
+                }
                 if !writable {
                     Text("This calendar is read-only, so Busy events can't be added to it.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -205,7 +214,7 @@ private struct SourceRow: View {
                 : " The location and description are copied too."
         }
         if source.showBusyInClient {
-            text += " Your main calendar's events also appear here as “Busy”, with no other details."
+            text += " Your main calendar's events also appear here as “\(source.busyStyle.title)”, with no other details."
         }
         let minutes = SyncSchedule.interval(for: source, defaultMinutes: settings.intervalMinutes)
         text += " Synced every \(minutes) \(minutes == 1 ? "minute" : "minutes")"

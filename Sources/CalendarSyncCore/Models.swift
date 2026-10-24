@@ -9,6 +9,20 @@ public enum SourceKind: Codable, Hashable, Sendable {
     case outlookWeb
 }
 
+/// What the main calendar's events are shown as inside a client calendar.
+public enum BusyStyle: String, Codable, Hashable, Sendable, CaseIterable {
+    case busy
+    case outOfOffice
+
+    /// The copy's title. Like the copy itself, it carries no detail of the original event.
+    public var title: String {
+        switch self {
+        case .busy: "Busy"
+        case .outOfOffice: "Out of office"
+        }
+    }
+}
+
 /// One client calendar the user wants copied into the target calendar.
 public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
@@ -21,8 +35,11 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
     public var hideMeetingName: Bool
     public var isEnabled: Bool
     /// When on, events in the main calendar are also added to this client calendar as plain
-    /// "Busy" events with no other details. Only possible for calendars that can be edited.
+    /// "Busy" or "Out of office" events with no other details. Only possible for calendars
+    /// that can be edited.
     public var showBusyInClient: Bool
+    /// What those events say: "Busy" or "Out of office".
+    public var busyStyle: BusyStyle
     /// When on, copies also get the meeting's location and description. Ignored while
     /// `hideMeetingName` is on, so hidden meetings don't leak through their details.
     public var copyDetails: Bool
@@ -36,6 +53,7 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
         hideMeetingName: Bool = false,
         isEnabled: Bool = true,
         showBusyInClient: Bool = false,
+        busyStyle: BusyStyle = .busy,
         copyDetails: Bool = false,
         intervalMinutes: Int? = nil
     ) {
@@ -45,6 +63,7 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
         self.hideMeetingName = hideMeetingName
         self.isEnabled = isEnabled
         self.showBusyInClient = showBusyInClient
+        self.busyStyle = busyStyle
         self.copyDetails = copyDetails
         self.intervalMinutes = intervalMinutes
     }
@@ -58,6 +77,7 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
         hideMeetingName = try c.decodeIfPresent(Bool.self, forKey: .hideMeetingName) ?? false
         isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
         showBusyInClient = try c.decodeIfPresent(Bool.self, forKey: .showBusyInClient) ?? false
+        busyStyle = try c.decodeIfPresent(BusyStyle.self, forKey: .busyStyle) ?? .busy
         copyDetails = try c.decodeIfPresent(Bool.self, forKey: .copyDetails) ?? false
         intervalMinutes = try c.decodeIfPresent(Int.self, forKey: .intervalMinutes)
     }
@@ -150,9 +170,12 @@ public struct CopySpec: Hashable, Sendable {
     public var url: URL?
     public var notes: String
     public var location: String?
+    /// Saved with "Out of office" availability where the calendar supports it, "Busy" otherwise.
+    public var isOutOfOffice: Bool
 
     public init(marker: CopyMarker, title: String, start: Date, end: Date, isAllDay: Bool,
-                timeZone: TimeZone?, url: URL?, notes: String, location: String? = nil) {
+                timeZone: TimeZone?, url: URL?, notes: String, location: String? = nil,
+                isOutOfOffice: Bool = false) {
         self.marker = marker
         self.title = title
         self.start = start
@@ -162,6 +185,7 @@ public struct CopySpec: Hashable, Sendable {
         self.url = url
         self.notes = notes
         self.location = location
+        self.isOutOfOffice = isOutOfOffice
     }
 }
 
