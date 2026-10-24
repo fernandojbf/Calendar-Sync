@@ -1,4 +1,5 @@
 import CalendarSyncCore
+import Combine
 import Foundation
 
 /// Checks GitHub for a newer version: the newest release when one is published, otherwise
