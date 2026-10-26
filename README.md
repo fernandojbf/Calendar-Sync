@@ -196,18 +196,6 @@ The tests cover the sync rules: titles, meeting links, details, moves, deletes, 
 - Calendar.app refreshes accounts every few minutes, so changes made on the client side show up with that delay.
 - If you remove a client calendar from the app, the copies already made from it stay in your calendar. Delete them in Calendar if you no longer want them.
 
-## Coming from the Shortcut?
-
-The original approach was a macOS Shortcut ("Sync Cals") run from cron. Calendar Sync replaces both:
-
-| | Shortcut + cron | Calendar Sync |
-|---|---|---|
-| Setup | Build the Shortcut by hand, then edit crontab | Install, then pick calendars in Settings |
-| Matching copies | Title + start time | Hidden tag per occurrence |
-| Moved meeting | Duplicate copy | Copy is moved |
-| Cancelled meeting | Separate cleanup Shortcut | Copy is removed |
-| Meeting link | Not copied | Copied |
-| Browser-only calendars | Not possible | Outlook on the web, `.ics` links |
 
 ## License
 
