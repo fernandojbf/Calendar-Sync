@@ -4,6 +4,9 @@
 #   scripts/build-app.sh                       # ad-hoc signed, for your own Mac
 #   SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" scripts/build-app.sh
 #                                              # signed for sharing (then notarize, see README)
+#
+# Any arguments are passed on to `swift build`. The Homebrew formula passes --disable-sandbox,
+# since SwiftPM can't sandbox its manifest build inside Homebrew's own build sandbox.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -14,8 +17,8 @@ IDENTITY="${SIGN_IDENTITY:--}"
 ARCH_FLAGS=()
 if [[ "${UNIVERSAL:-0}" == "1" ]]; then ARCH_FLAGS=(--arch arm64 --arch x86_64); fi
 
-swift build -c release --product CalendarSync ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
-BIN="$(swift build -c release --product CalendarSync ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)/CalendarSync"
+swift build -c release --product CalendarSync ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} "$@"
+BIN="$(swift build -c release --product CalendarSync ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} "$@" --show-bin-path)/CalendarSync"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

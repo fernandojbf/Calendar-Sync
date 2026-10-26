@@ -23,8 +23,9 @@ class CalendarSync < Formula
 
   def install
     # Builds with the system Swift toolchain (Xcode 15+ command line tools are enough)
-    # and ad-hoc signs, exactly like a manual source build.
-    system "scripts/build-app.sh"
+    # and ad-hoc signs, exactly like a manual source build. SwiftPM's own sandbox can't
+    # nest inside Homebrew's build sandbox ("sandbox_apply: Operation not permitted").
+    system "scripts/build-app.sh", "--disable-sandbox"
     prefix.install "build/Calendar Sync.app"
   end
 
