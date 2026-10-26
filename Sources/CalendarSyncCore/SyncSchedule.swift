@@ -13,6 +13,8 @@ public enum SyncSchedule {
 
     /// Enabled sources never read yet, or whose interval has passed since `lastRead`.
     /// Timers drift, so a source is due up to 30 seconds early rather than a whole tick late.
+    /// A read after `now` means the clock was set back since: that source is due too, rather
+    /// than waiting for the clock to catch up.
     public static func dueSources(
         _ sources: [SourceConfig],
         lastRead: [UUID: Date],
@@ -21,7 +23,7 @@ public enum SyncSchedule {
     ) -> Set<UUID> {
         Set(sources.filter { source in
             guard source.isEnabled else { return false }
-            guard let last = lastRead[source.id] else { return true }
+            guard let last = lastRead[source.id], last <= now else { return true }
             let seconds = TimeInterval(interval(for: source, defaultMinutes: defaultMinutes) * 60)
             return now.timeIntervalSince(last) >= seconds - 30
         }.map(\.id))

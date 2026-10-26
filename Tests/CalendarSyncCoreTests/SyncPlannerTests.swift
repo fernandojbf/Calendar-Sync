@@ -291,5 +291,16 @@ final class SyncScheduleTests: XCTestCase {
                        [usual.id])
         XCTAssertEqual(SyncSchedule.interval(for: SourceConfig(kind: .outlookWeb, calendarName: "E", intervalMinutes: 0),
                                              defaultMinutes: 15), 1)
+        XCTAssertEqual(SyncSchedule.interval(for: SourceConfig(kind: .outlookWeb, calendarName: "F", intervalMinutes: 100_000),
+                                             defaultMinutes: 15), SyncSchedule.maxMinutes)
+    }
+
+    func testClockSetBackDoesNotPostponeReads() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let source = SourceConfig(kind: .eventKit(calendarID: "a"), calendarName: "A")
+        // Last read "two hours from now": the clock was moved back after it.
+        XCTAssertEqual(SyncSchedule.dueSources([source], lastRead: [source.id: now + 2 * 3600], defaultMinutes: 15, now: now),
+                       [source.id])
+        XCTAssertEqual(SyncSchedule.dueSources([source], lastRead: [source.id: now - 60], defaultMinutes: 15, now: now), [])
     }
 }
