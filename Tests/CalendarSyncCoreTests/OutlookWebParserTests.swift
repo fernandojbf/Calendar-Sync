@@ -156,6 +156,20 @@ final class OutlookWebParserTests: XCTestCase {
         XCTAssertEqual(events["2"]?.end, midnight(30) - 1)
     }
 
+    func testWindowsTimeZoneNames() {
+        // Zones outside Europe and the US used to be read as UTC, hours off.
+        XCTAssertEqual(OutlookWebParser.parseDate("2026-10-27T09:30:00.0000000", zone: "Korea Standard Time"),
+                       ISO8601DateFormatter().date(from: "2026-10-27T00:30:00Z"))
+        XCTAssertEqual(OutlookWebParser.parseDate("2026-10-27T09:30:00.0000000", zone: "SA Pacific Standard Time"),
+                       ISO8601DateFormatter().date(from: "2026-10-27T14:30:00Z"), "Bogotá")
+        XCTAssertEqual(OutlookWebParser.timeZone(named: "Europe/Lisbon")?.identifier, "Europe/Lisbon")
+        XCTAssertNil(OutlookWebParser.timeZone(named: "Atlantis Standard Time"))
+        for (name, identifier) in OutlookWebParser.windowsZones {
+            XCTAssertNotNil(TimeZone(identifier: identifier), "\(name) → \(identifier)")
+            XCTAssertEqual(name, name.lowercased())
+        }
+    }
+
     func testDaylightSavingLocalTime() {
         // 23 Oct 2026 is still British Summer Time (UTC+1).
         let date = OutlookWebParser.parseDate("2026-10-23T09:00:00", zone: "GMT Standard Time")
