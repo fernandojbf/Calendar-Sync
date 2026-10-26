@@ -148,20 +148,28 @@ final class SyncController: ObservableObject {
         }
 
         // Then show the main calendar (now including the new copies) as Busy in the client
-        // calendars that ask for it.
+        // calendars that ask for it, and take the Busy events back from ones that no longer do.
         var busyPlans: [BusyPreview] = []
-        for source in settings.sources where source.isEnabled && source.showBusyInClient {
+        for source in settings.sources where source.isEnabled {
             guard case .eventKit(let calendarID) = source.kind, calendarID != targetID,
                   let calendar = eventKit.calendar(id: calendarID) else { continue }
-            guard calendar.allowsContentModifications else {
-                problems.append("\(calendar.title): read-only, so Busy events can't be added.")
-                continue
+            let busy: SyncPlan
+            if source.showBusyInClient {
+                guard calendar.allowsContentModifications else {
+                    problems.append("\(calendar.title): read-only, so Busy events can't be added.")
+                    continue
+                }
+                busy = SyncPlanner.planBusy(
+                    for: source,
+                    mainEvents: eventKit.sourceEvents(calendarID: targetID, from: start, to: end),
+                    existing: eventKit.existingCopies(targetID: calendarID, from: start, to: end) ?? [],
+                    options: settings.options)
+            } else {
+                guard calendar.allowsContentModifications else { continue }
+                busy = SyncPlanner.planBusyRemoval(
+                    for: source, existing: eventKit.existingCopies(targetID: calendarID, from: start, to: end) ?? [])
+                if busy.isEmpty { continue }
             }
-            let busy = SyncPlanner.planBusy(
-                for: source,
-                mainEvents: eventKit.sourceEvents(calendarID: targetID, from: start, to: end),
-                existing: eventKit.existingCopies(targetID: calendarID, from: start, to: end) ?? [],
-                options: settings.options)
             problems += busy.failedSources.values.map { "\(calendar.title) (Busy): \($0)" }
             if apply {
                 ignoreStoreChangesUntil = Date().addingTimeInterval(5)

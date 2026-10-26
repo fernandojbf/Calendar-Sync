@@ -112,6 +112,25 @@ final class BusyPlannerTests: XCTestCase {
         XCTAssertTrue(plan.isEmpty)
     }
 
+    func testTurningBusyOffTakesBackOnlyItsBusyEvents() {
+        let first = SyncPlanner.planBusy(for: clientA, mainEvents: .success([event("m1", "A", at: 1), event("m2", "B", at: 3)]),
+                                         existing: [], options: SyncOptions())
+        var existing = copies(from: first)
+        // Another client's Busy event, and an event of this client's that isn't a Busy event.
+        existing.append(ExistingCopy(eventID: "other-client", marker: CopyMarker(sourceID: clientB.id, key: "busy-1"),
+                                     title: "Busy", start: base, end: base + 3600, isAllDay: false, url: nil, notes: ""))
+        existing.append(ExistingCopy(eventID: "not-busy", marker: CopyMarker(sourceID: clientA.id, key: "meeting-1"),
+                                     title: "Meeting", start: base, end: base + 3600, isAllDay: false, url: nil, notes: ""))
+        var off = clientA
+        off.showBusyInClient = false
+
+        let plan = SyncPlanner.planBusyRemoval(for: off, existing: existing)
+        let deleted = plan.actions.compactMap { if case .delete(let id, _, _) = $0 { id } else { nil } }
+        XCTAssertEqual(Set(deleted), ["busy-0", "busy-1"])
+        XCTAssertEqual(plan.actions.count, 2)
+        XCTAssertTrue(SyncPlanner.planBusyRemoval(for: off, existing: []).isEmpty)
+    }
+
     func testFiltersFollowOptions() {
         var declined = event("d", "Declined", at: 1); declined.isDeclined = true
         var allDay = event("a", "Holiday", at: 2); allDay.isAllDay = true

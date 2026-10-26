@@ -96,6 +96,15 @@ public enum SyncPlanner {
         return SyncPlan(actions: actions, failedSources: [:], unchangedCount: unchanged)
     }
 
+    /// Takes back the Busy events shown in a client calendar that no longer asks for them
+    /// ("Show my main calendar here" turned off). Left there, they'd go on showing the main
+    /// calendar as it was when they were last updated.
+    public static func planBusyRemoval(for source: SourceConfig, existing: [ExistingCopy]) -> SyncPlan {
+        let busy = existing.filter { $0.marker.key.hasPrefix(CopyFormatter.busyKeyPrefix) }
+        let (actions, _) = diff(desired: [:], order: [], existing: busy, owners: [source.id], calendar: .current)
+        return SyncPlan(actions: actions, failedSources: [:], unchangedCount: 0)
+    }
+
     static func shouldShowBusy(_ event: SourceEvent, in source: SourceConfig, options: SyncOptions) -> Bool {
         if event.isCancelled { return false }
         if options.skipDeclined && event.isDeclined { return false }
