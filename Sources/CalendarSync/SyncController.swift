@@ -39,18 +39,32 @@ final class SyncController: ObservableObject {
     }
 
     func start() async {
-        hasCalendarAccess = await eventKit.requestAccess()
+        // The status, not the request's answer, so `hasCalendarAccess` always matches what
+        // sync() compares it with, and the two can't keep sending each other back here.
+        _ = await eventKit.requestAccess()
+        hasCalendarAccess = eventKit.hasAccess
+        // Runs without access too, so access granted later in System Settings is noticed.
+        if timer == nil { startTimer() }
         guard hasCalendarAccess else {
             lastSummary = "No calendar access. Allow it in System Settings › Privacy & Security › Calendars."
+            problems = []
             return
         }
-        storeObserver = NotificationCenter.default.addObserver(
-            forName: .EKEventStoreChanged, object: eventKit.store, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.calendarDataChanged() }
+        if storeObserver == nil {
+            storeObserver = NotificationCenter.default.addObserver(
+                forName: .EKEventStoreChanged, object: eventKit.store, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.calendarDataChanged() }
+            }
         }
-        startTimer()
         await sync()
+    }
+
+    /// Calendar access was granted or revoked in System Settings since it was last checked.
+    private func accessChanged() async {
+        // An event store made before access was granted can go on seeing no calendars.
+        if eventKit.hasAccess { eventKit.store.reset() }
+        await start()
     }
 
     /// Checks every minute which client calendars are due, so each can have its own interval
@@ -61,10 +75,18 @@ final class SyncController: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                Task { await self.syncDueSources() }
+                Task { await self.timerFired() }
             }
         }
         timer?.tolerance = 10
+    }
+
+    private func timerFired() async {
+        if hasCalendarAccess != eventKit.hasAccess {
+            await accessChanged()
+        } else if hasCalendarAccess {
+            await syncDueSources()
+        }
     }
 
     private func syncDueSources() async {
@@ -103,9 +125,10 @@ final class SyncController: ObservableObject {
     /// are left as they are.
     @discardableResult
     func sync(apply: Bool = true, only: Set<UUID>? = nil) async -> SyncPlan? {
-        // Access may have been granted in System Settings since launch; start() then syncs.
-        if !hasCalendarAccess, eventKit.hasAccess {
-            await start()
+        // Calendar access can be granted or revoked in System Settings while the app runs.
+        // start() then syncs, if it can.
+        if hasCalendarAccess != eventKit.hasAccess {
+            await accessChanged()
             return nil
         }
         guard hasCalendarAccess, !isSyncing else { return nil }
