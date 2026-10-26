@@ -32,6 +32,14 @@ final class SyncController: ObservableObject {
     private var pendingChangeSync: Task<Void, Never>?
     /// Our own writes also fire EKEventStoreChanged; ignore those.
     private var ignoreStoreChangesUntil = Date.distantPast
+    /// A sync asked for while another was running. It runs as soon as that one finishes, so
+    /// a Calendar change or a settings change made meanwhile isn't lost.
+    private var queuedSync: QueuedSync?
+
+    private struct QueuedSync {
+        /// nil syncs every source.
+        var only: Set<UUID>?
+    }
 
     init(settings: SettingsStore) {
         self.settings = settings
@@ -131,18 +139,28 @@ final class SyncController: ObservableObject {
             await accessChanged()
             return nil
         }
-        guard hasCalendarAccess, !isSyncing else { return nil }
+        guard hasCalendarAccess else { return nil }
+        guard !isSyncing else {
+            if apply { queue(only: only) }
+            return nil
+        }
         guard let targetID = settings.targetCalendarID, eventKit.calendar(id: targetID) != nil else {
             lastSummary = "Choose your main calendar to copy into in Settings."
             return nil
         }
         isSyncing = true
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            runQueuedSync()
+        }
 
         let (start, end) = window
+        let selected = settings.sources.filter { $0.isEnabled && only?.contains($0.id) != false }
+        // All marked read up front: a timer tick while an earlier one is read (Outlook takes a
+        // minute) mustn't queue another read of the ones still to come.
+        if apply { for source in selected { lastRead[source.id] = Date() } }
         var results: [(config: SourceConfig, result: SourceFetchResult)] = []
-        for source in settings.sources where source.isEnabled && only?.contains(source.id) != false {
-            if apply { lastRead[source.id] = Date() }
+        for source in selected {
             switch source.kind {
             case .eventKit(let calendarID):
                 if calendarID == targetID { continue } // never copy a calendar into itself
@@ -219,6 +237,21 @@ final class SyncController: ObservableObject {
         }
         self.problems = problems.sorted()
         return plan
+    }
+
+    private func queue(only: Set<UUID>?) {
+        guard let queued = queuedSync else {
+            queuedSync = QueuedSync(only: only)
+            return
+        }
+        // Either one syncing every source means syncing every source.
+        queuedSync = QueuedSync(only: queued.only.flatMap { earlier in only.map { earlier.union($0) } })
+    }
+
+    private func runQueuedSync() {
+        guard let queued = queuedSync else { return }
+        queuedSync = nil
+        Task { await sync(only: queued.only) }
     }
 
     // MARK: - Outlook web
