@@ -461,6 +461,8 @@ private struct UpdateStatus: View {
                     .disabled(updates.isChecking)
                 if updates.isChecking {
                     ProgressView().controlSize(.small)
+                } else if updates.lastCheckFailed {
+                    Text("Couldn't reach GitHub.").foregroundStyle(.secondary)
                 } else if updates.lastChecked != nil {
                     Text("Up to date.").foregroundStyle(.secondary)
                 }

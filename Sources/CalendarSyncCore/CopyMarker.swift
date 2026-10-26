@@ -27,9 +27,15 @@ public struct CopyMarker: Hashable, Sendable {
     }
 
     /// Finds a marker anywhere in `notes`. Returns nil for events this app didn't create.
+    ///
+    /// The marker ends at the first character `encoded` never writes, so text a calendar
+    /// server puts right after it (a closing HTML tag, a quote) doesn't become part of the key.
     public static func find(in notes: String?) -> CopyMarker? {
         guard let notes, let range = notes.range(of: prefix, options: .backwards) else { return nil }
-        let rest = notes[range.upperBound...].prefix { !$0.isWhitespace }
+        // `encoded` percent-encodes everything outside ASCII, `keyAllowed` included.
+        let rest = String(notes[range.upperBound...].unicodeScalars.prefix {
+            $0.isASCII && (keyAllowed.contains($0) || $0 == ":" || $0 == "%")
+        })
         let parts = rest.split(separator: ":", maxSplits: 1)
         guard parts.count == 2,
               let sourceID = UUID(uuidString: String(parts[0])),

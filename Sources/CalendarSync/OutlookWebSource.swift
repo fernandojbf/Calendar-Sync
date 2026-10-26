@@ -26,7 +26,8 @@ final class OutlookWebSource: NSObject, ObservableObject {
     private let webView: WKWebView
     private var window: NSWindow?
     private var captured: [Data] = []
-    private var lastCaptureAt = Date.distantPast
+    /// On a clock that setting the time doesn't move, like the waits that use it.
+    private var lastCaptureAt: ContinuousClock.Instant?
     private var isFetching = false
 
     init(sourceID: UUID) {
@@ -101,7 +102,7 @@ final class OutlookWebSource: NSObject, ObservableObject {
         // move on with Outlook's own "next week" button.
         for (index, weekStart) in Self.weekStarts(from: start, to: end).enumerated() {
             let before = captured.count
-            lastCaptureAt = .distantPast
+            lastCaptureAt = nil
             if index == 0 {
                 webView.load(URLRequest(url: Self.weekURL(for: weekStart)))
             } else {
@@ -185,10 +186,11 @@ final class OutlookWebSource: NSObject, ObservableObject {
     /// Waits until Outlook has downloaded a meeting starting in `[from, to)` and gone quiet
     /// for 3 s, up to 15 s. Returns whether that data arrived.
     private func waitForCalendarData(after before: Int, from: Date, to: Date) async -> Bool {
-        let deadline = Date().addingTimeInterval(15)
+        // Not wall-clock time: the clock set back during a read would keep it waiting for hours.
+        let deadline = ContinuousClock.now + .seconds(15)
         var checked = before
         var loaded = false
-        while Date() < deadline {
+        while ContinuousClock.now < deadline {
             try? await Task.sleep(nanoseconds: 500_000_000)
             if isSignInPage(webView.url) { return false }
             if !loaded, captured.count > checked {
@@ -196,7 +198,7 @@ final class OutlookWebSource: NSObject, ObservableObject {
                     .contains { $0.start >= from && $0.start < to }
                 checked = captured.count
             }
-            if loaded, Date().timeIntervalSince(lastCaptureAt) > 3 { return true }
+            if loaded, let last = lastCaptureAt, ContinuousClock.now - last > .seconds(3) { return true }
         }
         return loaded
     }
@@ -228,9 +230,12 @@ final class OutlookWebSource: NSObject, ObservableObject {
     }
 
     fileprivate func receive(_ message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any], let text = body["body"] as? String else { return }
+        // Only a running fetch reads the captured data, and it starts from none. Between
+        // fetches Outlook goes on loading data in the background (and mail, if the user reads
+        // it in the window), which would otherwise pile up here for as long as the app runs.
+        guard isFetching, let body = message.body as? [String: Any], let text = body["body"] as? String else { return }
         captured.append(Data(text.utf8))
-        lastCaptureAt = Date()
+        lastCaptureAt = .now
     }
 
     // MARK: - URLs

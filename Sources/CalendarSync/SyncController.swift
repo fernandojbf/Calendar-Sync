@@ -30,8 +30,17 @@ final class SyncController: ObservableObject {
     private var lastRead: [UUID: Date] = [:]
     private var storeObserver: NSObjectProtocol?
     private var pendingChangeSync: Task<Void, Never>?
-    /// Our own writes also fire EKEventStoreChanged; ignore those.
-    private var ignoreStoreChangesUntil = Date.distantPast
+    /// Our own writes also fire EKEventStoreChanged; ignore those. On a clock that setting
+    /// the time doesn't move, so setting it back can't make that last for hours.
+    private var ignoreStoreChangesUntil = ContinuousClock.now
+    /// A sync asked for while another was running. It runs as soon as that one finishes, so
+    /// a Calendar change or a settings change made meanwhile isn't lost.
+    private var queuedSync: QueuedSync?
+
+    private struct QueuedSync {
+        /// nil syncs every source.
+        var only: Set<UUID>?
+    }
 
     init(settings: SettingsStore) {
         self.settings = settings
@@ -39,18 +48,32 @@ final class SyncController: ObservableObject {
     }
 
     func start() async {
-        hasCalendarAccess = await eventKit.requestAccess()
+        // The status, not the request's answer, so `hasCalendarAccess` always matches what
+        // sync() compares it with, and the two can't keep sending each other back here.
+        _ = await eventKit.requestAccess()
+        hasCalendarAccess = eventKit.hasAccess
+        // Runs without access too, so access granted later in System Settings is noticed.
+        if timer == nil { startTimer() }
         guard hasCalendarAccess else {
             lastSummary = "No calendar access. Allow it in System Settings › Privacy & Security › Calendars."
+            problems = []
             return
         }
-        storeObserver = NotificationCenter.default.addObserver(
-            forName: .EKEventStoreChanged, object: eventKit.store, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.calendarDataChanged() }
+        if storeObserver == nil {
+            storeObserver = NotificationCenter.default.addObserver(
+                forName: .EKEventStoreChanged, object: eventKit.store, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.calendarDataChanged() }
+            }
         }
-        startTimer()
         await sync()
+    }
+
+    /// Calendar access was granted or revoked in System Settings since it was last checked.
+    private func accessChanged() async {
+        // An event store made before access was granted can go on seeing no calendars.
+        if eventKit.hasAccess { eventKit.store.reset() }
+        await start()
     }
 
     /// Checks every minute which client calendars are due, so each can have its own interval
@@ -61,10 +84,18 @@ final class SyncController: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                Task { await self.syncDueSources() }
+                Task { await self.timerFired() }
             }
         }
         timer?.tolerance = 10
+    }
+
+    private func timerFired() async {
+        if hasCalendarAccess != eventKit.hasAccess {
+            await accessChanged()
+        } else if hasCalendarAccess {
+            await syncDueSources()
+        }
     }
 
     private func syncDueSources() async {
@@ -77,7 +108,7 @@ final class SyncController: ObservableObject {
     /// Calendar.app changed (e.g. a client meeting moved): resync the Calendar.app sources
     /// after a short pause. Outlook web sources wait for their interval, since reading them is slow.
     private func calendarDataChanged() {
-        guard Date() > ignoreStoreChangesUntil else { return }
+        guard ContinuousClock.now > ignoreStoreChangesUntil else { return }
         pendingChangeSync?.cancel()
         pendingChangeSync = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 10_000_000_000)
@@ -103,23 +134,34 @@ final class SyncController: ObservableObject {
     /// are left as they are.
     @discardableResult
     func sync(apply: Bool = true, only: Set<UUID>? = nil) async -> SyncPlan? {
-        // Access may have been granted in System Settings since launch; start() then syncs.
-        if !hasCalendarAccess, eventKit.hasAccess {
-            await start()
+        // Calendar access can be granted or revoked in System Settings while the app runs.
+        // start() then syncs, if it can.
+        if hasCalendarAccess != eventKit.hasAccess {
+            await accessChanged()
             return nil
         }
-        guard hasCalendarAccess, !isSyncing else { return nil }
+        guard hasCalendarAccess else { return nil }
+        guard !isSyncing else {
+            if apply { queue(only: only) }
+            return nil
+        }
         guard let targetID = settings.targetCalendarID, eventKit.calendar(id: targetID) != nil else {
             lastSummary = "Choose your main calendar to copy into in Settings."
             return nil
         }
         isSyncing = true
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            runQueuedSync()
+        }
 
         let (start, end) = window
+        let selected = settings.sources.filter { $0.isEnabled && only?.contains($0.id) != false }
+        // All marked read up front: a timer tick while an earlier one is read (Outlook takes a
+        // minute) mustn't queue another read of the ones still to come.
+        if apply { for source in selected { lastRead[source.id] = Date() } }
         var results: [(config: SourceConfig, result: SourceFetchResult)] = []
-        for source in settings.sources where source.isEnabled && only?.contains(source.id) != false {
-            if apply { lastRead[source.id] = Date() }
+        for source in selected {
             switch source.kind {
             case .eventKit(let calendarID):
                 if calendarID == targetID { continue } // never copy a calendar into itself
@@ -142,31 +184,39 @@ final class SyncController: ObservableObject {
             "\(settings.sources.first { $0.id == id }?.calendarName ?? "Source"): \(reason)"
         }
         if apply {
-            ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+            ignoreStoreChangesUntil = .now + .seconds(5)
             problems += eventKit.apply(plan, targetID: targetID)
-            ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+            ignoreStoreChangesUntil = .now + .seconds(5)
         }
 
         // Then show the main calendar (now including the new copies) as Busy in the client
-        // calendars that ask for it.
+        // calendars that ask for it, and take the Busy events back from ones that no longer do.
         var busyPlans: [BusyPreview] = []
-        for source in settings.sources where source.isEnabled && source.showBusyInClient {
+        for source in settings.sources where source.isEnabled {
             guard case .eventKit(let calendarID) = source.kind, calendarID != targetID,
                   let calendar = eventKit.calendar(id: calendarID) else { continue }
-            guard calendar.allowsContentModifications else {
-                problems.append("\(calendar.title): read-only, so Busy events can't be added.")
-                continue
+            let busy: SyncPlan
+            if source.showBusyInClient {
+                guard calendar.allowsContentModifications else {
+                    problems.append("\(calendar.title): read-only, so Busy events can't be added.")
+                    continue
+                }
+                busy = SyncPlanner.planBusy(
+                    for: source,
+                    mainEvents: eventKit.sourceEvents(calendarID: targetID, from: start, to: end),
+                    existing: eventKit.existingCopies(targetID: calendarID, from: start, to: end) ?? [],
+                    options: settings.options)
+            } else {
+                guard calendar.allowsContentModifications else { continue }
+                busy = SyncPlanner.planBusyRemoval(
+                    for: source, existing: eventKit.existingCopies(targetID: calendarID, from: start, to: end) ?? [])
+                if busy.isEmpty { continue }
             }
-            let busy = SyncPlanner.planBusy(
-                for: source,
-                mainEvents: eventKit.sourceEvents(calendarID: targetID, from: start, to: end),
-                existing: eventKit.existingCopies(targetID: calendarID, from: start, to: end) ?? [],
-                options: settings.options)
             problems += busy.failedSources.values.map { "\(calendar.title) (Busy): \($0)" }
             if apply {
-                ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+                ignoreStoreChangesUntil = .now + .seconds(5)
                 problems += eventKit.apply(busy, targetID: calendarID).map { "\(calendar.title) (Busy): \($0)" }
-                ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+                ignoreStoreChangesUntil = .now + .seconds(5)
             }
             busyPlans.append(BusyPreview(id: source.id, calendarName: calendar.title, plan: busy))
         }
@@ -188,6 +238,21 @@ final class SyncController: ObservableObject {
         }
         self.problems = problems.sorted()
         return plan
+    }
+
+    private func queue(only: Set<UUID>?) {
+        guard let queued = queuedSync else {
+            queuedSync = QueuedSync(only: only)
+            return
+        }
+        // Either one syncing every source means syncing every source.
+        queuedSync = QueuedSync(only: queued.only.flatMap { earlier in only.map { earlier.union($0) } })
+    }
+
+    private func runQueuedSync() {
+        guard let queued = queuedSync else { return }
+        queuedSync = nil
+        Task { await sync(only: queued.only) }
     }
 
     // MARK: - Outlook web

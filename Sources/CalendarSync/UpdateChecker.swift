@@ -14,7 +14,11 @@ final class UpdateChecker: ObservableObject {
     /// Set when a version newer than the running one is published.
     @Published private(set) var available: UpdateCheck.Latest?
     @Published private(set) var isChecking = false
+    /// When a check last reached GitHub.
     @Published private(set) var lastChecked: Date?
+    /// The last check couldn't reach GitHub (offline, GitHub down). What an earlier check
+    /// found is kept.
+    @Published private(set) var lastCheckFailed = false
 
     var currentVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -37,11 +41,13 @@ final class UpdateChecker: ObservableObject {
     func check() async {
         guard !isChecking else { return }
         isChecking = true
-        defer {
-            isChecking = false
-            lastChecked = Date()
+        defer { isChecking = false }
+        guard let latest = await fetchLatest() else {
+            lastCheckFailed = true
+            return
         }
-        guard let latest = await fetchLatest() else { return }
+        lastCheckFailed = false
+        lastChecked = Date()
         available = UpdateCheck.isNewer(latest.version, than: currentVersion) ? latest : nil
     }
 

@@ -51,7 +51,8 @@ struct MenuView: View {
                 Button("Sync now") {
                     Task { await controller.sync() }
                 }
-                .disabled(controller.isSyncing || !controller.hasCalendarAccess)
+                // Enabled without access too: a sync checks again whether access was granted.
+                .disabled(controller.isSyncing)
                 .keyboardShortcut("r")
 
                 Spacer()

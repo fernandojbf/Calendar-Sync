@@ -86,6 +86,38 @@ final class SyncPlannerTests: XCTestCase {
         XCTAssertTrue(next.isEmpty)
     }
 
+    func testDisabledSourceKeepsItsCopies() {
+        let first = SyncPlanner.plan(sources: [(source, .success([event("1", "A", at: 1)]))], existing: [], options: SyncOptions())
+        var off = source
+        off.isEnabled = false
+        let next = SyncPlanner.plan(sources: [(off, .success([]))], existing: copies(from: first), options: SyncOptions())
+        XCTAssertTrue(next.isEmpty)
+        XCTAssertTrue(next.failedSources.isEmpty, "turned off isn't a failure")
+    }
+
+    func testCancelledOccurrenceRemovesItsCopy() {
+        let first = SyncPlanner.plan(sources: [(source, .success([event("1", "A", at: 1), event("2", "B", at: 2)]))],
+                                     existing: [], options: SyncOptions())
+        var cancelled = event("2", "Canceled: B", at: 2)
+        cancelled.isCancelled = true
+        let next = SyncPlanner.plan(sources: [(source, .success([event("1", "A", at: 1), cancelled]))],
+                                    existing: copies(from: first), options: SyncOptions())
+        XCTAssertEqual(next.actions.count, 1)
+        guard case .delete(let id, _, _) = next.actions[0] else { return XCTFail() }
+        XCTAssertEqual(id, "copy-1")
+    }
+
+    func testLongDescriptionsAreCut() {
+        var detailed = source
+        detailed.copyDetails = true
+        var e = event("1", "Review", at: 1)
+        e.notes = String(repeating: "word ", count: 3000)
+        let details = CopyFormatter.details(for: e, source: detailed)
+        XCTAssertLessThanOrEqual(details.notes?.count ?? .max, CopyFormatter.maxDetailsLength + 1)
+        XCTAssertEqual(details.notes?.hasSuffix("word…"), true)
+        XCTAssertNil(details.location)
+    }
+
     func testFilters() {
         var declined = event("d", "Declined", at: 1); declined.isDeclined = true
         var cancelled = event("c", "Cancelled", at: 2); cancelled.isCancelled = true
@@ -169,6 +201,26 @@ final class SyncPlannerTests: XCTestCase {
         XCTAssertEqual(after.updates, 1)
     }
 
+    func testAllDayCopiesAreComparedByDay() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let day = utc.date(from: DateComponents(year: 2026, month: 10, day: 26))!
+        var release = SourceEvent(key: "r", title: "Release day", start: day, end: day + 86400 - 1, isAllDay: true)
+        func plan(_ existing: [ExistingCopy]) -> SyncPlan {
+            SyncPlanner.plan(sources: [(source, .success([release]))], existing: existing, options: SyncOptions(), calendar: utc)
+        }
+        // The calendar hands the copy back ending at midnight rather than a second before it.
+        var stored = copies(from: plan([]))
+        stored[0].end = day + 86400
+        XCTAssertTrue(plan(stored).isEmpty, "the same day either way, so it isn't rewritten on every sync")
+
+        release.end += 86400
+        XCTAssertEqual(plan(stored).updates, 1, "a second day is a change")
+        release.start += 86400
+        release.end = release.start + 86400 - 1
+        XCTAssertEqual(plan(stored).updates, 1, "so is moving to another day")
+    }
+
     func testOptionsSavedByOlderVersionsKeepDefaults() throws {
         let old = #"{"daysAhead":7,"skipDeclined":false,"skipAllDay":true}"#
         let options = try JSONDecoder().decode(SyncOptions.self, from: Data(old.utf8))
@@ -192,6 +244,15 @@ final class CopyMarkerTests: XCTestCase {
         let marker = CopyMarker(sourceID: UUID(), key: "AAMkAD/x+y==|2026-10-23T09:00:00Z with space")
         let notes = "Join: https://zoom.us/j/1\n\nsome text\n\n" + marker.encoded
         XCTAssertEqual(CopyMarker.find(in: notes), marker)
+    }
+
+    func testMarkerEndsWhereItsEncodingEnds() {
+        let marker = CopyMarker(sourceID: UUID(), key: "outlook:Réunion d’équipe|2026-10-23T09:00:00Z")
+        // Calendar servers can store notes as HTML, or put other text right after the marker.
+        for notes in ["<p>\(marker.encoded)</p>", "\(marker.encoded)\"", "x \(marker.encoded)\u{00A0}more", marker.encoded + ")",
+                      marker.encoded + "été", marker.encoded + "５"] {
+            XCTAssertEqual(CopyMarker.find(in: notes), marker, notes)
+        }
     }
 
     func testNoMarker() {
@@ -262,5 +323,16 @@ final class SyncScheduleTests: XCTestCase {
                        [usual.id])
         XCTAssertEqual(SyncSchedule.interval(for: SourceConfig(kind: .outlookWeb, calendarName: "E", intervalMinutes: 0),
                                              defaultMinutes: 15), 1)
+        XCTAssertEqual(SyncSchedule.interval(for: SourceConfig(kind: .outlookWeb, calendarName: "F", intervalMinutes: 100_000),
+                                             defaultMinutes: 15), SyncSchedule.maxMinutes)
+    }
+
+    func testClockSetBackDoesNotPostponeReads() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let source = SourceConfig(kind: .eventKit(calendarID: "a"), calendarName: "A")
+        // Last read "two hours from now": the clock was moved back after it.
+        XCTAssertEqual(SyncSchedule.dueSources([source], lastRead: [source.id: now + 2 * 3600], defaultMinutes: 15, now: now),
+                       [source.id])
+        XCTAssertEqual(SyncSchedule.dueSources([source], lastRead: [source.id: now - 60], defaultMinutes: 15, now: now), [])
     }
 }
