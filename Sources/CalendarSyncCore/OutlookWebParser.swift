@@ -17,12 +17,15 @@ import Foundation
 /// either). `OutlookWebSource` therefore also loads each meeting in full; those responses are
 /// passed as `details` and merged into the week-view events by item id.
 public enum OutlookWebParser {
-    public static func events(fromPayloads payloads: [Data], details detailPayloads: [Data] = []) -> [SourceEvent] {
+    /// - Parameter timeZone: this Mac's time zone, whose days all-day events are placed on.
+    public static func events(fromPayloads payloads: [Data], details detailPayloads: [Data] = [],
+                              timeZone: TimeZone = .current) -> [SourceEvent] {
         let details = self.details(fromPayloads: detailPayloads)
         var seen: Set<String> = []
         var result: [SourceEvent] = []
         forEachEvent(in: payloads) { obj in
-            guard let event = event(from: obj, detail: rawItemID(obj).flatMap { details[$0] }) else { return }
+            guard let event = event(from: obj, detail: rawItemID(obj).flatMap { details[$0] }, timeZone: timeZone)
+            else { return }
             if seen.insert(event.key).inserted { result.append(event) }
         }
         return result.sorted { $0.start < $1.start }
@@ -140,15 +143,20 @@ public enum OutlookWebParser {
 
     // MARK: - One event
 
-    static func event(from obj: Obj, detail: Obj? = nil) -> SourceEvent? {
+    static func event(from obj: Obj, detail: Obj? = nil, timeZone: TimeZone = .current) -> SourceEvent? {
         guard let subject = obj.string("subject") ?? (obj.has("subject") ? "" : nil),
               let startField = obj.value("start"), let endField = obj.value("end"),
-              let start = date(startField, fallbackZone: obj.string("startTimeZone") ?? obj.string("originalStartTimeZone")),
-              let end = date(endField, fallbackZone: obj.string("endTimeZone") ?? obj.string("originalEndTimeZone")),
+              var start = date(startField, fallbackZone: obj.string("startTimeZone") ?? obj.string("originalStartTimeZone")),
+              var end = date(endField, fallbackZone: obj.string("endTimeZone") ?? obj.string("originalEndTimeZone")),
               let id = itemID(obj)
         else { return nil }
 
         let isAllDay = obj.bool("isAllDay") ?? obj.bool("isAllDayEvent") ?? false
+        if isAllDay {
+            let eventZone = Self.timeZone(named: obj.string("originalStartTimeZone") ?? obj.string("startTimeZone")
+                ?? obj.string("startTimeZoneId") ?? obj.object("startTimeZone")?.string("id"))
+            (start, end) = allDayRange(startField, endField, start: start, end: end, eventZone: eventZone, timeZone: timeZone)
+        }
         let isCancelled = obj.bool("isCancelled") ?? false
 
         let response = (obj.string("responseType")
@@ -231,6 +239,46 @@ public enum OutlookWebParser {
     }
 
     // MARK: - Dates
+
+    /// An all-day event the way Calendar.app has one: from midnight of its first day to a
+    /// second before midnight after its last day, on this Mac's days. Outlook writes all-day
+    /// events as midnights in the mailbox's time zone (or UTC); read as instants, they land on
+    /// the previous or next day whenever that zone isn't this Mac's. A time not written as
+    /// midnight goes on the day it falls on in the event's own zone when Outlook names it,
+    /// else on this Mac's.
+    static func allDayRange(_ startField: Any, _ endField: Any, start: Date, end: Date,
+                            eventZone: TimeZone? = nil, timeZone: TimeZone) -> (start: Date, end: Date) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        func day(_ field: Any, _ instant: Date) -> Date {
+            if let written = writtenMidnight(field, calendar: calendar) { return written }
+            guard let eventZone else { return calendar.startOfDay(for: instant) }
+            var eventCalendar = calendar
+            eventCalendar.timeZone = eventZone
+            let day = eventCalendar.dateComponents([.year, .month, .day], from: instant)
+            return calendar.date(from: day) ?? calendar.startOfDay(for: instant)
+        }
+        let first = day(startField, start)
+        let afterLast = day(endField, end)
+        // At least one day, whatever the end says.
+        let next = max(afterLast, calendar.date(byAdding: .day, value: 1, to: first) ?? afterLast)
+        return (first, next.addingTimeInterval(-1))
+    }
+
+    /// The day a date field names when it's written as midnight ("2026-10-26T00:00:00+09:00",
+    /// or Graph's `dateTime` "2026-10-26T00:00:00.0000000"), as midnight in `calendar`.
+    static func writtenMidnight(_ value: Any, calendar: Calendar) -> Date? {
+        let raw = (value as? String) ?? (value as? [String: Any]).flatMap { Obj($0).string("dateTime") }
+        guard let raw else { return nil }
+        let string = raw.trimmingCharacters(in: .whitespaces)
+        guard let m = midnightRegex.firstMatch(in: string, range: NSRange(string.startIndex..., in: string)) else { return nil }
+        func number(_ i: Int) -> Int? { Range(m.range(at: i), in: string).flatMap { Int(string[$0]) } }
+        guard let year = number(1), let month = number(2), let day = number(3) else { return nil }
+        return calendar.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    private static let midnightRegex = try! NSRegularExpression(
+        pattern: #"^(\d{4})-(\d{2})-(\d{2})T00:00(:00(\.0+)?)?(Z|[+-]\d{2}(:?\d{2})?)?$"#)
 
     static func date(_ value: Any, fallbackZone: String?) -> Date? {
         if let string = value as? String {
