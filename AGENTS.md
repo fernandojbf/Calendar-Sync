@@ -19,8 +19,8 @@ A bump isn't done until the tap serves it.
 
    Also carry over anything else that changed in
    [`packaging/homebrew/calendar-sync.rb`](packaging/homebrew/calendar-sync.rb) since the last
-   update: apart from the header comment and the `url`/`version`/`sha256` pin, the two files are
-   identical.
+   update: apart from the header comment and the `url`/`version`/`sha256` pin (plus `revision`,
+   which belongs to the pin and lives only in the tap), the two files are identical.
 3. Check that the archive builds the way the formula builds it: extract it into an empty
    directory and run `scripts/build-app.sh --disable-sandbox` there.
 4. Commit to the tap's `main` as `calendar-sync <version>` and push.

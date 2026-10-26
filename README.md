@@ -149,7 +149,7 @@ You need **macOS 14 or later** and **Xcode 15+** (the command line tools are eno
 Install with the two commands under [Install](#install). The formula lives in the [neteinstein/homebrew-tap](https://github.com/neteinstein/homebrew-tap) tap and builds the app from source on your Mac (that's why it needs the Xcode command line tools), so there's nothing to sign or notarize. `brew install --HEAD neteinstein/tap/calendar-sync` builds the latest `main` instead of the pinned version.
 
 - **Updating:** `brew update && brew upgrade calendar-sync`. Settings also warns you when a newer version is out, and its **Update** button shows these commands.
-- **Open at login:** copy the app into /Applications first, so the login item survives upgrades: `cp -a "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app" /Applications/`
+- **Open at login:** run `brew services start calendar-sync` and leave **Open at login** in Settings off, or two copies start. The service runs the app from Homebrew's `opt` path, so it keeps starting the newest version after upgrades. `brew upgrade` doesn't restart it: run `brew services restart calendar-sync` for that.
 - Upgrades are ad-hoc signed builds, so macOS asks for calendar access again after each one. Your settings are kept.
 
 ### From source
