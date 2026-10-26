@@ -228,7 +228,10 @@ final class OutlookWebSource: NSObject, ObservableObject {
     }
 
     fileprivate func receive(_ message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any], let text = body["body"] as? String else { return }
+        // Only a running fetch reads the captured data, and it starts from none. Between
+        // fetches Outlook goes on loading data in the background (and mail, if the user reads
+        // it in the window), which would otherwise pile up here for as long as the app runs.
+        guard isFetching, let body = message.body as? [String: Any], let text = body["body"] as? String else { return }
         captured.append(Data(text.utf8))
         lastCaptureAt = Date()
     }
