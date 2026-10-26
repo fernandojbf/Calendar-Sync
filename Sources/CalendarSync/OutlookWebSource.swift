@@ -13,6 +13,10 @@ import WebKit
 /// Outlook's own requests are. `OutlookWebParser` turns all of that into events. Nothing is
 /// sent anywhere else.
 ///
+/// To Outlook this is a Safari session: the web view runs the WebKit of the Safari installed
+/// on this Mac and reports its user agent, with its own cookie store, so it is one more
+/// browser signed in to the account.
+///
 /// EXPERIMENTAL: this depends on how Outlook on the web loads its data, which Microsoft can
 /// change at any time. If a sync can't find calendar data, the copies are left untouched.
 @MainActor
@@ -41,11 +45,20 @@ final class OutlookWebSource: NSObject, ObservableObject {
             WKUserScript(source: Self.captureScript, injectionTime: .atDocumentStart, forMainFrameOnly: false))
 
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 860), configuration: config)
-        // Outlook may refuse browsers it doesn't recognise; present as Safari.
-        webView.customUserAgent =
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
+        webView.customUserAgent = Self.safariUserAgent()
         super.init()
         webView.configuration.userContentController.add(WeakMessageHandler(self), name: "calsync")
+    }
+
+    /// The user agent of the Safari installed on this Mac, whose WebKit is the one the web view
+    /// runs. WKWebView's own user agent names no browser, and Outlook turns away browsers it
+    /// doesn't recognise and nags about versions it no longer supports. The macOS version is
+    /// the one Safari itself has reported since 10.15, and the WebKit build is fixed the same way.
+    static func safariUserAgent() -> String {
+        let version = Bundle(path: "/Applications/Safari.app")?
+            .object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            + "Version/\(version ?? "26.0") Safari/605.1.15"
     }
 
     /// Releases the web view so its stored sign-in can be deleted.
@@ -233,7 +246,7 @@ final class OutlookWebSource: NSObject, ObservableObject {
         // Only a running fetch reads the captured data, and it starts from none. Between
         // fetches Outlook goes on loading data in the background (and mail, if the user reads
         // it in the window), which would otherwise pile up here for as long as the app runs.
-        guard isFetching, let body = message.body as? [String: Any], let text = body["body"] as? String else { return }
+        guard isFetching, let text = message.body as? String else { return }
         captured.append(Data(text.utf8))
         lastCaptureAt = .now
     }
@@ -259,126 +272,159 @@ final class OutlookWebSource: NSObject, ObservableObject {
 
     /// Wraps `fetch` and `XMLHttpRequest` in the page and forwards responses from calendar
     /// endpoints to the app. Also remembers the URL and headers of Outlook's own service calls
-    /// (which carry its sign-in), for `detailsScript`. Read-only: requests are passed through
-    /// unchanged.
+    /// (which carry its sign-in) for `loadItems`, which `detailsScript` calls. Read-only:
+    /// requests are passed through unchanged.
+    ///
+    /// Everything stays inside the script; the page only gets `window.__calsync.loadItems`.
+    /// In particular the remembered sign-in headers are not left on `window`, where any
+    /// script in the page could read them.
     static let captureScript = #"""
     (function () {
       if (window.__calsync) return;
-      window.__calsync = true;
       // graphql carries the weeks after the first one. SaveCalendarView only stores which
       // view is shown and has no events.
       const RX = /^(?!.*savecalendarview).*(calendarview|finditem|calendaritem|startupdata|\/events|graphql)/i;
       const MAX = 8 * 1024 * 1024;
-      function send(url, text) {
+      const nativeFetch = window.fetch;
+      // Outlook's last service call: { url, headers }.
+      let service = null;
+
+      function send(text) {
         try {
           if (!text || text.length > MAX) return;
           const c = text.trimStart()[0];
           if (c !== '{' && c !== '[') return;
-          window.webkit.messageHandlers.calsync.postMessage({ url: String(url), body: text });
+          window.webkit.messageHandlers.calsync.postMessage(text);
         } catch (e) {}
       }
       function remember(url, headers) {
         try {
           if (!/\/service\.svc/i.test(String(url))) return;
-          window.__calsyncService = { url: new URL(String(url), location.href).href, headers: headers };
+          service = { url: new URL(String(url), location.href).href, headers: headers };
         } catch (e) {}
       }
-      const origFetch = window.fetch;
-      if (origFetch) {
-        window.__calsyncFetch = origFetch;
+      function headersOf(source, into) {
+        try { if (source) new Headers(source).forEach((v, k) => { into[k] = v; }); } catch (e) {}
+        return into;
+      }
+
+      if (nativeFetch) {
         window.fetch = function (input, init) {
-          const p = origFetch.apply(this, arguments);
+          const p = nativeFetch.apply(this, arguments);
           try {
             const url = typeof input === 'string' ? input : (input && input.url) || '';
-            if (RX.test(url)) p.then(r => r.clone().text()).then(t => send(url, t)).catch(() => {});
-            const headers = {};
-            if (input && input.headers) new Headers(input.headers).forEach((v, k) => { headers[k] = v; });
-            if (init && init.headers) new Headers(init.headers).forEach((v, k) => { headers[k] = v; });
-            remember(url, headers);
+            if (RX.test(url)) p.then(r => r.clone().text()).then(send).catch(() => {});
+            const headers = headersOf(input && input.headers, {});
+            remember(url, headersOf(init && init.headers, headers));
           } catch (e) {}
           return p;
         };
       }
-      const open = XMLHttpRequest.prototype.open;
-      const xsend = XMLHttpRequest.prototype.send;
-      const setHeader = XMLHttpRequest.prototype.setRequestHeader;
-      XMLHttpRequest.prototype.open = function (method, url) {
-        this.__calsyncURL = url;
-        this.__calsyncHeaders = {};
+
+      // Per request: { url, headers }, until it is sent.
+      const requests = new WeakMap();
+      const proto = XMLHttpRequest.prototype;
+      const open = proto.open, setHeader = proto.setRequestHeader, xsend = proto.send;
+      proto.open = function (method, url) {
+        try { requests.set(this, { url: String(url), headers: {} }); } catch (e) {}
         return open.apply(this, arguments);
       };
-      XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
-        try { if (this.__calsyncHeaders) this.__calsyncHeaders[String(name).toLowerCase()] = String(value); } catch (e) {}
+      proto.setRequestHeader = function (name, value) {
+        try {
+          const request = requests.get(this);
+          if (request) request.headers[String(name).toLowerCase()] = String(value);
+        } catch (e) {}
         return setHeader.apply(this, arguments);
       };
-      XMLHttpRequest.prototype.send = function () {
-        remember(this.__calsyncURL, this.__calsyncHeaders || {});
-        if (RX.test(String(this.__calsyncURL || ''))) {
-          this.addEventListener('load', function () {
-            try {
-              if (this.responseType === '' || this.responseType === 'text') send(this.__calsyncURL, this.responseText);
-              else if (this.responseType === 'json') send(this.__calsyncURL, JSON.stringify(this.response));
-            } catch (e) {}
-          });
-        }
+      proto.send = function () {
+        try {
+          const request = requests.get(this);
+          if (request) {
+            requests.delete(this);
+            remember(request.url, request.headers);
+            if (RX.test(request.url)) {
+              this.addEventListener('load', function () {
+                try {
+                  if (this.responseType === '' || this.responseType === 'text') send(this.responseText);
+                  else if (this.responseType === 'json') send(JSON.stringify(this.response));
+                } catch (e) {}
+              });
+            }
+          }
+        } catch (e) {}
         return xsend.apply(this, arguments);
       };
+
+      // Asks Outlook's service for the meetings in full, as Outlook itself does when a
+      // meeting is opened, with the sign-in headers of its last service call. Sends the
+      // request in the body and, if Outlook refuses that, in the x-owa-urlpostdata header that
+      // newer Outlook versions use. Returns the response texts, or none without a service
+      // call to take the sign-in from.
+      async function loadItems(ids) {
+        if (!service || !ids || !ids.length) return [];
+        const url = new URL(service.url);
+        url.searchParams.set('action', 'GetItem');
+        url.searchParams.delete('n');
+        const base = {};
+        for (const [k, v] of Object.entries(service.headers)) {
+          if (!/^(content-length|content-type|action|x-owa-urlpostdata|x-owa-actionname|x-owa-actionid)$/i.test(k)) base[k] = v;
+        }
+        base['action'] = 'GetItem';
+        base['content-type'] = 'application/json; charset=utf-8';
+        async function post(headers, body) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 20000);
+          try {
+            const r = await nativeFetch.call(window, url.href, {
+              method: 'POST', headers, body, credentials: 'include', signal: controller.signal,
+            });
+            return r.ok ? await r.text() : null;
+          } catch (e) {
+            return null;
+          } finally {
+            clearTimeout(timer);
+          }
+        }
+        const out = [];
+        const size = 10;
+        for (let i = 0; i < ids.length; i += size) {
+          const request = JSON.stringify({
+            __type: 'GetItemJsonRequest:#Exchange',
+            Header: { __type: 'JsonRequestHeaders:#Exchange', RequestServerVersion: 'Exchange2013' },
+            Body: {
+              __type: 'GetItemRequest:#Exchange',
+              ItemShape: { __type: 'ItemResponseShape:#Exchange', BaseShape: 'AllProperties', BodyType: 'HTML' },
+              ItemIds: ids.slice(i, i + size).map(id => ({ __type: 'ItemId:#Exchange', Id: id })),
+            },
+          });
+          const headers = withNewIDs(base);
+          let text = await post(headers, request);
+          if (text === null) {
+            text = await post(Object.assign({}, headers, { 'x-owa-urlpostdata': encodeURIComponent(request) }), '');
+          }
+          if (text) out.push(text);
+        }
+        return out;
+      }
+      // A correlation or request id identifies one request, so each request gets its own
+      // rather than the id of the call the headers were taken from.
+      function withNewIDs(headers) {
+        const out = Object.assign({}, headers);
+        for (const k of Object.keys(out)) {
+          if (/correlation|request-?id/i.test(k) && /^[0-9a-f-]{36}$/i.test(out[k])) out[k] = crypto.randomUUID();
+        }
+        return out;
+      }
+
+      window.__calsync = { loadItems };
     })();
     """#
-}
 
-extension OutlookWebSource {
-    /// Runs in the page (`callAsyncJavaScript`, with `ids`): asks Outlook's service for the
-    /// meetings in full, as Outlook itself does when a meeting is opened, reusing the sign-in
-    /// headers of its last service call. Sends the request in the body and, if Outlook refuses
-    /// that, in the `x-owa-urlpostdata` header that newer Outlook versions use. Returns the
-    /// response texts.
+    /// Runs in the page (`callAsyncJavaScript`, with `ids`): loads the meetings in full
+    /// through `captureScript`'s `loadItems`. Returns the response texts.
     static let detailsScript = #"""
-    const svc = window.__calsyncService;
-    if (!svc || !ids || !ids.length) return [];
-    const url = new URL(svc.url);
-    url.searchParams.set('action', 'GetItem');
-    url.searchParams.delete('n');
-    const base = {};
-    for (const [k, v] of Object.entries(svc.headers || {})) {
-      if (!/^(content-length|content-type|action|x-owa-urlpostdata|x-owa-actionname|x-owa-actionid)$/i.test(k)) base[k] = v;
-    }
-    base['action'] = 'GetItem';
-    base['content-type'] = 'application/json; charset=utf-8';
-    const doFetch = window.__calsyncFetch || window.fetch;
-    async function post(headers, body) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20000);
-      try {
-        const r = await doFetch.call(window, url.href, {
-          method: 'POST', headers, body, credentials: 'include', signal: controller.signal,
-        });
-        return r.ok ? await r.text() : null;
-      } catch (e) {
-        return null;
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-    const out = [];
-    const size = 10;
-    for (let i = 0; i < ids.length; i += size) {
-      const request = JSON.stringify({
-        __type: 'GetItemJsonRequest:#Exchange',
-        Header: { __type: 'JsonRequestHeaders:#Exchange', RequestServerVersion: 'Exchange2013' },
-        Body: {
-          __type: 'GetItemRequest:#Exchange',
-          ItemShape: { __type: 'ItemResponseShape:#Exchange', BaseShape: 'AllProperties', BodyType: 'HTML' },
-          ItemIds: ids.slice(i, i + size).map(id => ({ __type: 'ItemId:#Exchange', Id: id })),
-        },
-      });
-      let text = await post(base, request);
-      if (text === null) {
-        text = await post(Object.assign({}, base, { 'x-owa-urlpostdata': encodeURIComponent(request) }), '');
-      }
-      if (text) out.push(text);
-    }
-    return out;
+    const api = window.__calsync;
+    return api ? await api.loadItems(ids) : [];
     """#
 }
 
