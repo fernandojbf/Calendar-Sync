@@ -53,8 +53,13 @@ private struct GeneralTab: View {
 
             Section {
                 Toggle("Show a calendar in the menu", isOn: $settings.menuCalendarEnabled)
+                if settings.menuCalendarEnabled {
+                    Toggle("Show the week day in the menu bar", isOn: $settings.menuBar.showsWeekday)
+                    Toggle("Show the moon phase in the menu bar", isOn: $settings.menuBar.showsMoonPhase)
+                    Toggle("Show the time in the menu bar", isOn: $settings.menuBar.showsTime)
+                }
             } footer: {
-                Text("The menu bar button opens a month view — click a day for its events — or a scrolling list of your main calendar's events, and the menu bar icon shows today's date.")
+                Text("The menu bar button opens a month view — click a day for its events — or a scrolling list of your main calendar's events, and the menu bar icon shows today's date, with the week day, the moon phase and the time next to it when those are on.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
