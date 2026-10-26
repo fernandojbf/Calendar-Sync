@@ -53,6 +53,19 @@ final class BusyPlannerTests: XCTestCase {
         XCTAssertFalse(spec.notes.localizedCaseInsensitiveContains("salary"))
     }
 
+    func testAllDayEventsStayAllDayAndTimedOnesKeepTheirZone() {
+        var holiday = event("h", "Holiday", at: 0)
+        holiday.isAllDay = true
+        holiday.timeZone = TimeZone(identifier: "Europe/Lisbon")
+        var call = event("c", "Call", at: 4)
+        call.timeZone = TimeZone(identifier: "America/New_York")
+        let plan = SyncPlanner.planBusy(for: clientA, mainEvents: .success([holiday, call]), existing: [], options: SyncOptions())
+        let specs = plan.actions.compactMap { if case .create(let s) = $0 { s } else { nil } }
+        XCTAssertEqual(specs.map(\.isAllDay), [true, false])
+        XCTAssertNil(specs[0].timeZone, "all-day events are floating")
+        XCTAssertEqual(specs[1].timeZone?.identifier, "America/New_York")
+    }
+
     func testSwitchingStyleUpdatesExistingCopies() {
         let main = [event("m1", "A", at: 1)]
         let first = SyncPlanner.planBusy(for: clientA, mainEvents: .success(main), existing: [], options: SyncOptions())

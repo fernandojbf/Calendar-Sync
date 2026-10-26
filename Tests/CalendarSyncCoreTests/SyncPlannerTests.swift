@@ -86,6 +86,38 @@ final class SyncPlannerTests: XCTestCase {
         XCTAssertTrue(next.isEmpty)
     }
 
+    func testDisabledSourceKeepsItsCopies() {
+        let first = SyncPlanner.plan(sources: [(source, .success([event("1", "A", at: 1)]))], existing: [], options: SyncOptions())
+        var off = source
+        off.isEnabled = false
+        let next = SyncPlanner.plan(sources: [(off, .success([]))], existing: copies(from: first), options: SyncOptions())
+        XCTAssertTrue(next.isEmpty)
+        XCTAssertTrue(next.failedSources.isEmpty, "turned off isn't a failure")
+    }
+
+    func testCancelledOccurrenceRemovesItsCopy() {
+        let first = SyncPlanner.plan(sources: [(source, .success([event("1", "A", at: 1), event("2", "B", at: 2)]))],
+                                     existing: [], options: SyncOptions())
+        var cancelled = event("2", "Canceled: B", at: 2)
+        cancelled.isCancelled = true
+        let next = SyncPlanner.plan(sources: [(source, .success([event("1", "A", at: 1), cancelled]))],
+                                    existing: copies(from: first), options: SyncOptions())
+        XCTAssertEqual(next.actions.count, 1)
+        guard case .delete(let id, _, _) = next.actions[0] else { return XCTFail() }
+        XCTAssertEqual(id, "copy-1")
+    }
+
+    func testLongDescriptionsAreCut() {
+        var detailed = source
+        detailed.copyDetails = true
+        var e = event("1", "Review", at: 1)
+        e.notes = String(repeating: "word ", count: 3000)
+        let details = CopyFormatter.details(for: e, source: detailed)
+        XCTAssertLessThanOrEqual(details.notes?.count ?? .max, CopyFormatter.maxDetailsLength + 1)
+        XCTAssertEqual(details.notes?.hasSuffix("word…"), true)
+        XCTAssertNil(details.location)
+    }
+
     func testFilters() {
         var declined = event("d", "Declined", at: 1); declined.isDeclined = true
         var cancelled = event("c", "Cancelled", at: 2); cancelled.isCancelled = true

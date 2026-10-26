@@ -204,4 +204,12 @@ final class OutlookWebParserTests: XCTestCase {
         XCTAssertEqual(events[1].meetingURL?.host, "meet.google.com")
         XCTAssertTrue(events[3].isCancelled)
     }
+
+    func testScreenLabelEndingAfterMidnight() {
+        let london = TimeZone(identifier: "Europe/London")!
+        let events = OutlookWebParser.events(
+            fromScreenLabels: ["Release window, 11:30 PM to 12:30 AM, Monday, October 26, 2026, Busy"], timeZone: london)
+        XCTAssertEqual(events.first?.start, ISO8601DateFormatter().date(from: "2026-10-26T23:30:00Z"))
+        XCTAssertEqual(events.first?.end, ISO8601DateFormatter().date(from: "2026-10-27T00:30:00Z"))
+    }
 }
