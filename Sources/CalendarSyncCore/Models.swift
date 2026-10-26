@@ -110,6 +110,27 @@ public struct SyncOptions: Codable, Hashable, Sendable {
     }
 }
 
+/// What the menu bar icon shows next to today's date while the menu calendar is on.
+public struct MenuBarOptions: Codable, Hashable, Sendable {
+    public var showsWeekday: Bool
+    public var showsMoonPhase: Bool
+    public var showsTime: Bool
+
+    public init(showsWeekday: Bool = false, showsMoonPhase: Bool = false, showsTime: Bool = false) {
+        self.showsWeekday = showsWeekday
+        self.showsMoonPhase = showsMoonPhase
+        self.showsTime = showsTime
+    }
+
+    // Settings saved by older versions don't have every key yet.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        showsWeekday = try c.decodeIfPresent(Bool.self, forKey: .showsWeekday) ?? false
+        showsMoonPhase = try c.decodeIfPresent(Bool.self, forKey: .showsMoonPhase) ?? false
+        showsTime = try c.decodeIfPresent(Bool.self, forKey: .showsTime) ?? false
+    }
+}
+
 /// A single meeting occurrence read from a source, independent of where it came from.
 public struct SourceEvent: Hashable, Sendable {
     /// Stable per occurrence: stays the same when the meeting is moved, so the copy is

@@ -7,7 +7,7 @@ struct CalendarSyncApp: App {
     @StateObject private var controller: SyncController
     @StateObject private var alerts: EventAlertController
     @StateObject private var updates = UpdateChecker()
-    @StateObject private var today = Today()
+    @StateObject private var clock = Clock()
 
     /// Held until the process ends. See `InstanceLock`.
     private static var instanceLock: InstanceLock?
@@ -41,19 +41,36 @@ struct CalendarSyncApp: App {
     }
 
     /// The icon in the menu bar: a calendar glyph, plus today's date when the menu calendar
-    /// is on. `Today` keeps the date right past midnight. Not a TimelineView: in a menu bar
-    /// label it re-renders the button in an endless loop and the app hangs at launch.
+    /// is on, and with it the week day, the time and the moon phase when those are on too.
+    /// `Clock` keeps the date and time right as the minutes pass. Not a TimelineView: in a
+    /// menu bar label it re-renders the button in an endless loop and the app hangs at launch.
     private struct MenuBarLabel: View {
         @ObservedObject var settings: SettingsStore
         @ObservedObject var controller: SyncController
-        @ObservedObject var today: Today
+        @ObservedObject var clock: Clock
+
+        /// "26 Oct", or "Mon 26 Oct" with the week day, in the locale's own field order.
+        private var dateStyle: Date.FormatStyle {
+            let style = Date.FormatStyle.dateTime.day().month(.abbreviated)
+            return settings.menuBar.showsWeekday ? style.weekday(.abbreviated) : style
+        }
 
         var body: some View {
             let icon = controller.problems.isEmpty ? "calendar" : "calendar.badge.exclamationmark"
             if settings.menuCalendarEnabled {
                 HStack(spacing: 3) {
                     Image(systemName: icon)
-                    Text(today.date, format: .dateTime.day().month(.abbreviated))
+                    Text(clock.now, format: dateStyle)
+                    if settings.menuBar.showsTime {
+                        Text(clock.now, format: .dateTime.hour().minute())
+                            .monospacedDigit()
+                            .padding(.leading, 3)
+                    }
+                    if settings.menuBar.showsMoonPhase {
+                        let phase = MoonPhase.phase(on: clock.now)
+                        Image(systemName: phase.symbolName)
+                            .accessibilityLabel(phase.name)
+                    }
                 }
             } else {
                 Image(systemName: controller.problems.isEmpty ? "calendar.badge.clock" : "calendar.badge.exclamationmark")
@@ -67,7 +84,7 @@ struct CalendarSyncApp: App {
                 .environmentObject(settings)
                 .environmentObject(controller)
         } label: {
-            MenuBarLabel(settings: settings, controller: controller, today: today)
+            MenuBarLabel(settings: settings, controller: controller, clock: clock)
         }
         .menuBarExtraStyle(.window)
 
@@ -80,23 +97,49 @@ struct CalendarSyncApp: App {
     }
 }
 
-/// Today's date for the menu bar label. Checks every minute and publishes only when the day
-/// changes, so the label redraws once a day.
+/// The current minute, for the menu bar label. Ticks on the minute, so a shown time changes
+/// when the system clock does, and the label redraws at most once a minute.
 @MainActor
-final class Today: ObservableObject {
-    @Published private(set) var date = Calendar.current.startOfDay(for: Date())
+final class Clock: ObservableObject {
+    @Published private(set) var now = Clock.minute(of: Date())
     private var timer: Timer?
 
     init() {
-        // Scheduled on the main run loop, so the block runs on the main actor.
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        // On the main run loop, so the block runs on the main actor; in the common modes, so
+        // it keeps ticking while the menu is open.
+        let timer = Timer(fire: now + 60, interval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
-        timer?.tolerance = 10
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     private func refresh() {
-        let day = Calendar.current.startOfDay(for: Date())
-        if day != date { date = day }
+        let minute = Self.minute(of: Date())
+        if minute != now { now = minute }
+    }
+
+    /// `date` with its seconds dropped.
+    private static func minute(of date: Date) -> Date {
+        Date(timeIntervalSinceReferenceDate: (date.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60)
+    }
+}
+
+extension MoonPhase {
+    /// The SF Symbol for the phase, lit on the right while waxing as seen from the northern
+    /// hemisphere. The inverse variants fill the lit part, as almanacs do (● full, ○ new), so
+    /// the glyph reads the same way in a dark menu bar.
+    var symbolName: String {
+        switch self {
+        case .newMoon: "moonphase.new.moon.inverse"
+        case .waxingCrescent: "moonphase.waxing.crescent.inverse"
+        case .firstQuarter: "moonphase.first.quarter.inverse"
+        case .waxingGibbous: "moonphase.waxing.gibbous.inverse"
+        case .fullMoon: "moonphase.full.moon.inverse"
+        case .waningGibbous: "moonphase.waning.gibbous.inverse"
+        case .lastQuarter: "moonphase.last.quarter.inverse"
+        case .waningCrescent: "moonphase.waning.crescent.inverse"
+        }
     }
 }
