@@ -150,6 +150,7 @@ Install with the two commands under [Install](#install). The formula lives in th
 
 - **Updating:** `brew update && brew upgrade calendar-sync`. Settings also warns you when a newer version is out, and its **Update** button shows these commands.
 - **Open at login:** run `brew services start calendar-sync` and leave **Open at login** in Settings off, or two copies start. The service runs the app from Homebrew's `opt` path, so it keeps starting the newest version after upgrades. `brew upgrade` doesn't restart it: run `brew services restart calendar-sync` for that.
+- **Homebrew in a separate admin account:** install and upgrade from the admin account as usual, but run `brew services` from the account you log in to the desktop with. The admin account has no desktop session to start the app in, so there it fails with `Domain does not support specified action`. If your own account then refuses to load the formula from an untrusted tap, run `brew trust --formula neteinstein/tap/calendar-sync` from it first.
 - Upgrades are ad-hoc signed builds, so macOS asks for calendar access again after each one. Your settings are kept.
 
 ### From source
