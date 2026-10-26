@@ -30,8 +30,9 @@ final class SyncController: ObservableObject {
     private var lastRead: [UUID: Date] = [:]
     private var storeObserver: NSObjectProtocol?
     private var pendingChangeSync: Task<Void, Never>?
-    /// Our own writes also fire EKEventStoreChanged; ignore those.
-    private var ignoreStoreChangesUntil = Date.distantPast
+    /// Our own writes also fire EKEventStoreChanged; ignore those. On a clock that setting
+    /// the time doesn't move, so setting it back can't make that last for hours.
+    private var ignoreStoreChangesUntil = ContinuousClock.now
     /// A sync asked for while another was running. It runs as soon as that one finishes, so
     /// a Calendar change or a settings change made meanwhile isn't lost.
     private var queuedSync: QueuedSync?
@@ -107,7 +108,7 @@ final class SyncController: ObservableObject {
     /// Calendar.app changed (e.g. a client meeting moved): resync the Calendar.app sources
     /// after a short pause. Outlook web sources wait for their interval, since reading them is slow.
     private func calendarDataChanged() {
-        guard Date() > ignoreStoreChangesUntil else { return }
+        guard ContinuousClock.now > ignoreStoreChangesUntil else { return }
         pendingChangeSync?.cancel()
         pendingChangeSync = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 10_000_000_000)
@@ -183,9 +184,9 @@ final class SyncController: ObservableObject {
             "\(settings.sources.first { $0.id == id }?.calendarName ?? "Source"): \(reason)"
         }
         if apply {
-            ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+            ignoreStoreChangesUntil = .now + .seconds(5)
             problems += eventKit.apply(plan, targetID: targetID)
-            ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+            ignoreStoreChangesUntil = .now + .seconds(5)
         }
 
         // Then show the main calendar (now including the new copies) as Busy in the client
@@ -213,9 +214,9 @@ final class SyncController: ObservableObject {
             }
             problems += busy.failedSources.values.map { "\(calendar.title) (Busy): \($0)" }
             if apply {
-                ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+                ignoreStoreChangesUntil = .now + .seconds(5)
                 problems += eventKit.apply(busy, targetID: calendarID).map { "\(calendar.title) (Busy): \($0)" }
-                ignoreStoreChangesUntil = Date().addingTimeInterval(5)
+                ignoreStoreChangesUntil = .now + .seconds(5)
             }
             busyPlans.append(BusyPreview(id: source.id, calendarName: calendar.title, plan: busy))
         }
