@@ -37,7 +37,8 @@ class CalendarSync < Formula
       To start it at every login, use brew services (below) rather than
       "Open at login" in the app's Settings. The service runs the app from
       #{opt_prefix}, which keeps pointing at the newest version
-      after brew upgrade. Leave the in-app switch off, or two copies start.
+      after brew upgrade. Leave the in-app switch off: only one copy runs at a
+      time, so a second login item would just start and quit.
 
       Run brew services as the user who logs in to the desktop, even when
       Homebrew belongs to a separate admin account: from an account that

@@ -1,3 +1,4 @@
+import CalendarSyncCore
 import SwiftUI
 
 @main
@@ -8,12 +9,35 @@ struct CalendarSyncApp: App {
     @StateObject private var updates = UpdateChecker()
     @StateObject private var today = Today()
 
+    /// Held until the process ends. See `InstanceLock`.
+    private static var instanceLock: InstanceLock?
+
     init() {
+        Self.quitIfAlreadyRunning()
         let settings = SettingsStore()
         let controller = SyncController(settings: settings)
         _settings = StateObject(wrappedValue: settings)
         _controller = StateObject(wrappedValue: controller)
         _alerts = StateObject(wrappedValue: EventAlertController(settings: settings, eventKit: controller.eventKit))
+    }
+
+    /// A copy already running would sync the same calendars: an "Open at login" item next to
+    /// a `brew services` one, or a source build next to a Homebrew one. Every copy shares the
+    /// lock file, so a later one quits here, before it asks for calendar access, syncs or shows
+    /// anything. If the lock can't be taken at all, running beats not running.
+    private static func quitIfAlreadyRunning() {
+        guard instanceLock == nil else { return }
+        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("org.neteinstein.calendarsync/instance.lock")
+        do {
+            guard let lock = try InstanceLock.acquire(at: url) else {
+                NSLog("Calendar Sync is already running, so this copy quits.")
+                exit(0)
+            }
+            instanceLock = lock
+        } catch {
+            NSLog("Calendar Sync couldn't check for another running copy, so it runs anyway: \(error)")
+        }
     }
 
     /// The icon in the menu bar: a calendar glyph, plus today's date when the menu calendar
