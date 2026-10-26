@@ -39,7 +39,7 @@ public enum CopyFormatter {
     /// office"), nothing else. The notes hold only the hidden marker, whose key is a hash so
     /// it reveals nothing about the original event.
     public static func busySpec(for event: SourceEvent, source: SourceConfig) -> CopySpec {
-        let marker = CopyMarker(sourceID: source.id, key: "busy-" + stableHash(event.key))
+        let marker = CopyMarker(sourceID: source.id, key: busyKeyPrefix + stableHash(event.key))
         return CopySpec(
             marker: marker,
             title: source.busyStyle.title,
@@ -52,6 +52,9 @@ public enum CopyFormatter {
             isOutOfOffice: source.busyStyle == .outOfOffice
         )
     }
+
+    /// Starts the marker key of every Busy event.
+    static let busyKeyPrefix = "busy-"
 
     /// FNV-1a, 64-bit. Stable across launches and platforms (unlike `Hasher`).
     static func stableHash(_ string: String) -> String {

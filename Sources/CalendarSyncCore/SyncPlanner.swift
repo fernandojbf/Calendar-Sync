@@ -26,10 +26,12 @@ public enum SyncPlanner {
     ///   - sources: every configured source with the result of reading it for the sync window.
     ///   - existing: copies currently in the target calendar for the same window (anything
     ///     carrying a marker).
+    ///   - calendar: whose days all-day events are compared by.
     public static func plan(
         sources: [(config: SourceConfig, result: SourceFetchResult)],
         existing: [ExistingCopy],
-        options: SyncOptions
+        options: SyncOptions,
+        calendar: Calendar = .current
     ) -> SyncPlan {
         var desired: [CopyMarker: CopySpec] = [:]
         var desiredOrder: [CopyMarker] = []
@@ -52,7 +54,8 @@ public enum SyncPlanner {
             }
         }
 
-        let (actions, unchanged) = diff(desired: desired, order: desiredOrder, existing: existing, owners: syncedSourceIDs)
+        let (actions, unchanged) = diff(desired: desired, order: desiredOrder, existing: existing,
+                                        owners: syncedSourceIDs, calendar: calendar)
         return SyncPlan(actions: actions, failedSources: failed, unchangedCount: unchanged)
     }
 
@@ -62,11 +65,13 @@ public enum SyncPlanner {
     ///   - source: the client calendar to write into.
     ///   - mainEvents: the main calendar's events for the sync window.
     ///   - existing: copies currently in the client calendar (anything carrying a marker).
+    ///   - calendar: whose days all-day events are compared by.
     public static func planBusy(
         for source: SourceConfig,
         mainEvents: SourceFetchResult,
         existing: [ExistingCopy],
-        options: SyncOptions
+        options: SyncOptions,
+        calendar: Calendar = .current
     ) -> SyncPlan {
         let events: [SourceEvent]
         switch mainEvents {
@@ -86,8 +91,18 @@ public enum SyncPlanner {
                 order.append(spec.marker)
             }
         }
-        let (actions, unchanged) = diff(desired: desired, order: order, existing: existing, owners: [source.id])
+        let (actions, unchanged) = diff(desired: desired, order: order, existing: existing, owners: [source.id],
+                                        calendar: calendar)
         return SyncPlan(actions: actions, failedSources: [:], unchangedCount: unchanged)
+    }
+
+    /// Takes back the Busy events shown in a client calendar that no longer asks for them
+    /// ("Show my main calendar here" turned off). Left there, they'd go on showing the main
+    /// calendar as it was when they were last updated.
+    public static func planBusyRemoval(for source: SourceConfig, existing: [ExistingCopy]) -> SyncPlan {
+        let busy = existing.filter { $0.marker.key.hasPrefix(CopyFormatter.busyKeyPrefix) }
+        let (actions, _) = diff(desired: [:], order: [], existing: busy, owners: [source.id], calendar: .current)
+        return SyncPlan(actions: actions, failedSources: [:], unchangedCount: 0)
     }
 
     static func shouldShowBusy(_ event: SourceEvent, in source: SourceConfig, options: SyncOptions) -> Bool {
@@ -106,7 +121,8 @@ public enum SyncPlanner {
         desired: [CopyMarker: CopySpec],
         order: [CopyMarker],
         existing: [ExistingCopy],
-        owners: Set<UUID>
+        owners: Set<UUID>,
+        calendar: Calendar
     ) -> ([SyncAction], Int) {
         var actions: [SyncAction] = []
         var matched: Set<CopyMarker> = []
@@ -121,7 +137,7 @@ public enum SyncPlanner {
                 continue
             }
             matched.insert(copy.marker)
-            if needsUpdate(copy, to: spec) {
+            if needsUpdate(copy, to: spec, calendar: calendar) {
                 actions.append(.update(eventID: copy.eventID, spec))
             } else {
                 unchanged += 1
@@ -146,13 +162,22 @@ public enum SyncPlanner {
 
     /// Notes and location are compared after tidying whitespace, since calendar servers
     /// (Exchange, Google) change line endings and spacing when they store them.
-    static func needsUpdate(_ copy: ExistingCopy, to spec: CopySpec) -> Bool {
+    static func needsUpdate(_ copy: ExistingCopy, to spec: CopySpec, calendar: Calendar) -> Bool {
         copy.title != spec.title
-            || abs(copy.start.timeIntervalSince(spec.start)) >= 1
-            || abs(copy.end.timeIntervalSince(spec.end)) >= 1
+            || !sameTimes(copy, spec, calendar: calendar)
             || copy.isAllDay != spec.isAllDay
             || copy.url != spec.url
             || HTMLText.normalize(copy.notes) != HTMLText.normalize(spec.notes)
             || HTMLText.normalize(copy.location ?? "") != HTMLText.normalize(spec.location ?? "")
+    }
+
+    /// All-day events are compared by their first and last day: an all-day event's end can
+    /// be a second before midnight or midnight itself, depending on who wrote it.
+    static func sameTimes(_ copy: ExistingCopy, _ spec: CopySpec, calendar: Calendar) -> Bool {
+        if copy.isAllDay && spec.isAllDay {
+            return calendar.isDate(copy.start, inSameDayAs: spec.start)
+                && calendar.isDate(copy.end - 1, inSameDayAs: spec.end - 1)
+        }
+        return abs(copy.start.timeIntervalSince(spec.start)) < 1 && abs(copy.end.timeIntervalSince(spec.end)) < 1
     }
 }

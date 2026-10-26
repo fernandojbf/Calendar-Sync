@@ -96,9 +96,120 @@ final class OutlookWebParserTests: XCTestCase {
         XCTAssertEqual(Set(events.filter(\.isOutOfOffice).map(\.key)), ["1", "3"])
     }
 
+    func testAllDayEventsKeepTheirDaysInAnotherTimeZone() {
+        // A Tokyo mailbox (OWA style) and a mailbox read in UTC (Graph style), on a Mac in New
+        // York. As instants, the 26th in Tokyo starts at 11:00 on the 25th in New York.
+        let json = """
+        {"Items":[{"ItemId":{"Id":"1"},"Subject":"Release day","IsAllDayEvent":true,
+                   "Start":"2026-10-26T00:00:00+09:00","End":"2026-10-27T00:00:00+09:00"},
+                  {"ItemId":{"Id":"2"},"Subject":"Standup","IsAllDayEvent":false,
+                   "Start":"2026-10-26T09:00:00+09:00","End":"2026-10-26T09:15:00+09:00"}],
+         "value":[{"id":"3","subject":"Offsite","isAllDay":true,
+                   "start":{"dateTime":"2026-10-28T00:00:00.0000000","timeZone":"UTC"},
+                   "end":{"dateTime":"2026-10-30T00:00:00.0000000","timeZone":"UTC"}}]}
+        """
+        let newYork = TimeZone(identifier: "America/New_York")!
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = newYork
+        func midnight(_ day: Int) -> Date { calendar.date(from: DateComponents(year: 2026, month: 10, day: day))! }
+
+        let events = Dictionary(uniqueKeysWithValues: OutlookWebParser.events(fromPayloads: [Data(json.utf8)], timeZone: newYork)
+            .map { ($0.key, $0) })
+        // Like Calendar.app's own all-day events: midnight to a second before the next midnight.
+        XCTAssertEqual(events["1"]?.start, midnight(26))
+        XCTAssertEqual(events["1"]?.end, midnight(27) - 1)
+        XCTAssertEqual(events["3"]?.start, midnight(28))
+        XCTAssertEqual(events["3"]?.end, midnight(30) - 1, "two days: the 28th and the 29th")
+        XCTAssertEqual(events["2"]?.start, ISO8601DateFormatter().date(from: "2026-10-26T00:00:00Z"), "timed events are instants")
+    }
+
+    func testAllDayEventWithoutAWrittenMidnight() {
+        // Only an instant to go on: it's placed on this Mac's day, and lasts at least that day.
+        let json = #"{"Items":[{"ItemId":{"Id":"1"},"Subject":"Leave","IsAllDayEvent":true,"Start":"2026-10-26T04:00:00Z","End":"2026-10-26T04:00:00Z"}]}"#
+        let newYork = TimeZone(identifier: "America/New_York")!
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = newYork
+        let event = OutlookWebParser.events(fromPayloads: [Data(json.utf8)], timeZone: newYork).first
+        XCTAssertEqual(event?.start, calendar.date(from: DateComponents(year: 2026, month: 10, day: 26)))
+        XCTAssertEqual(event?.end, calendar.date(from: DateComponents(year: 2026, month: 10, day: 27))! - 1)
+    }
+
+    func testAllDayEventGivenAsInstantsInItsOwnZone() {
+        // Midnight in Berlin written in UTC, read on a Mac in New York (where it's 19:00 the
+        // day before): the event names its zone, so it stays on the 26th.
+        let json = """
+        {"Items":[{"ItemId":{"Id":"1"},"Subject":"Holiday","IsAllDayEvent":true,"StartTimeZoneId":"W. Europe Standard Time",
+                   "Start":"2026-10-25T23:00:00Z","End":"2026-10-26T23:00:00Z"}],
+         "value":[{"id":"2","subject":"Offsite","isAllDay":true,"originalStartTimeZone":"W. Europe Standard Time",
+                   "start":{"dateTime":"2026-10-27T23:00:00.0000000","timeZone":"UTC"},
+                   "end":{"dateTime":"2026-10-29T23:00:00.0000000","timeZone":"UTC"}}]}
+        """
+        let newYork = TimeZone(identifier: "America/New_York")!
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = newYork
+        func midnight(_ day: Int) -> Date { calendar.date(from: DateComponents(year: 2026, month: 10, day: day))! }
+        let events = Dictionary(uniqueKeysWithValues: OutlookWebParser.events(fromPayloads: [Data(json.utf8)], timeZone: newYork)
+            .map { ($0.key, $0) })
+        XCTAssertEqual(events["1"]?.start, midnight(26))
+        XCTAssertEqual(events["1"]?.end, midnight(27) - 1)
+        XCTAssertEqual(events["2"]?.start, midnight(28))
+        XCTAssertEqual(events["2"]?.end, midnight(30) - 1)
+    }
+
+    func testWindowsTimeZoneNames() {
+        // Zones outside Europe and the US used to be read as UTC, hours off.
+        XCTAssertEqual(OutlookWebParser.parseDate("2026-10-27T09:30:00.0000000", zone: "Korea Standard Time"),
+                       ISO8601DateFormatter().date(from: "2026-10-27T00:30:00Z"))
+        XCTAssertEqual(OutlookWebParser.parseDate("2026-10-27T09:30:00.0000000", zone: "SA Pacific Standard Time"),
+                       ISO8601DateFormatter().date(from: "2026-10-27T14:30:00Z"), "Bogotá")
+        XCTAssertEqual(OutlookWebParser.timeZone(named: "Europe/Lisbon")?.identifier, "Europe/Lisbon")
+        XCTAssertNil(OutlookWebParser.timeZone(named: "Atlantis Standard Time"))
+        for (name, identifier) in OutlookWebParser.windowsZones {
+            XCTAssertNotNil(TimeZone(identifier: identifier), "\(name) → \(identifier)")
+            XCTAssertEqual(name, name.lowercased())
+        }
+    }
+
     func testDaylightSavingLocalTime() {
         // 23 Oct 2026 is still British Summer Time (UTC+1).
         let date = OutlookWebParser.parseDate("2026-10-23T09:00:00", zone: "GMT Standard Time")
         XCTAssertEqual(date, ISO8601DateFormatter().date(from: "2026-10-23T08:00:00Z"))
+    }
+
+    func testScreenLabels() {
+        let labels = [
+            "Team stand-up, 10:15 AM to 10:30 AM, Monday, October 26, 2026, Microsoft Teams Meeting, By Alex Morgan, Busy, Recurring event",
+            "Sprint close, retro & planning, 1:00 PM to 2:00 PM, Thursday, October 29, 2026, Microsoft Teams Meeting, By Alex Morgan, Busy, Recurring event",
+            " Architecture open class (session 1), 3:00 PM to 4:30 PM, Wednesday, October 28, 2026, https://meet.google.com/abc-defg-hij, By Sam Lee, Busy",
+            "Canceled: Retro, 11:00 AM to 11:30 AM, Friday, October 30, 2026, By Chris Park, Free",
+            "Annual leave, all day event, Saturday, October 17, 2026 to Monday, October 26, 2026, By Chris Park, Free",
+            "Team stand-up, 10:15 AM to 10:30 AM, Monday, October 26, 2026, Microsoft Teams Meeting, By Alex Morgan, Busy, Recurring event",
+        ]
+        let london = TimeZone(identifier: "Europe/London")!
+        let events = OutlookWebParser.events(fromScreenLabels: labels, timeZone: london)
+        XCTAssertEqual(events.map(\.title), [
+            "Team stand-up",
+            "Architecture open class (session 1)",
+            "Sprint close, retro & planning",
+            "Canceled: Retro",
+        ])
+
+        let standup = events[0]
+        // 26 Oct 2026 is after the UK clocks change, so London == UTC.
+        XCTAssertEqual(standup.start, ISO8601DateFormatter().date(from: "2026-10-26T10:15:00Z"))
+        XCTAssertEqual(standup.end, ISO8601DateFormatter().date(from: "2026-10-26T10:30:00Z"))
+        XCTAssertEqual(standup.key, OutlookWebParser.screenKey(title: "Team stand-up", start: standup.start))
+        XCTAssertNil(standup.meetingURL)
+
+        XCTAssertEqual(events[1].meetingURL?.host, "meet.google.com")
+        XCTAssertTrue(events[3].isCancelled)
+    }
+
+    func testScreenLabelEndingAfterMidnight() {
+        let london = TimeZone(identifier: "Europe/London")!
+        let events = OutlookWebParser.events(
+            fromScreenLabels: ["Release window, 11:30 PM to 12:30 AM, Monday, October 26, 2026, Busy"], timeZone: london)
+        XCTAssertEqual(events.first?.start, ISO8601DateFormatter().date(from: "2026-10-26T23:30:00Z"))
+        XCTAssertEqual(events.first?.end, ISO8601DateFormatter().date(from: "2026-10-27T00:30:00Z"))
     }
 }

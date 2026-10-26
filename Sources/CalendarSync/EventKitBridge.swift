@@ -39,12 +39,14 @@ final class EventKitBridge {
         }
         // EventKit expands recurring meetings into one EKEvent per occurrence.
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: [calendar])
-        return .success(store.events(matching: predicate).map { Self.sourceEvent($0) })
+        return .success(store.events(matching: predicate).compactMap { Self.sourceEvent($0) })
     }
 
-    static func sourceEvent(_ event: EKEvent) -> SourceEvent {
+    /// Nil for an event without dates. EventKit declares them as never nil but doesn't
+    /// promise it, and reading a missing one would crash the app on every sync.
+    static func sourceEvent(_ event: EKEvent) -> SourceEvent? {
+        guard let start = event.startDate as Date?, let end = event.endDate as Date? else { return nil }
         let id: String = event.calendarItemIdentifier
-        let start: Date = event.startDate
         // Occurrences of a recurring meeting share one identifier, so add the original
         // occurrence date (which stays the same when one occurrence is moved).
         let isRecurring = event.hasRecurrenceRules || event.isDetached
@@ -57,7 +59,7 @@ final class EventKitBridge {
             key: key,
             title: event.title ?? "",
             start: start,
-            end: event.endDate,
+            end: end,
             isAllDay: event.isAllDay,
             timeZone: event.timeZone,
             isDeclined: myStatus == .declined,
@@ -75,7 +77,9 @@ final class EventKitBridge {
         guard let calendar = store.calendar(withIdentifier: targetID) else { return nil }
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: [calendar])
         return store.events(matching: predicate).compactMap { event in
-            guard let marker = CopyMarker.find(in: event.notes), let eventID = event.eventIdentifier else { return nil }
+            guard let marker = CopyMarker.find(in: event.notes), let eventID = event.eventIdentifier,
+                  let start = event.startDate as Date?, let end = event.endDate as Date?
+            else { return nil }
             // Exchange and Google may drop the event URL and change line endings. Read it the
             // way we wrote it, so unchanged copies aren't rewritten on every sync.
             let notes = (event.notes ?? "")
@@ -85,8 +89,8 @@ final class EventKitBridge {
                 eventID: eventID,
                 marker: marker,
                 title: event.title ?? "",
-                start: event.startDate,
-                end: event.endDate,
+                start: start,
+                end: end,
                 isAllDay: event.isAllDay,
                 url: event.url ?? MeetingLink.firstMeetingLink(in: notes),
                 notes: notes,

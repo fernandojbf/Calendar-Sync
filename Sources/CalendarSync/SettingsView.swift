@@ -473,6 +473,8 @@ private struct UpdateStatus: View {
                     .disabled(updates.isChecking)
                 if updates.isChecking {
                     ProgressView().controlSize(.small)
+                } else if updates.lastCheckFailed {
+                    Text("Couldn't reach GitHub.").foregroundStyle(.secondary)
                 } else if updates.lastChecked != nil {
                     Text("Up to date.").foregroundStyle(.secondary)
                 }
@@ -487,14 +489,21 @@ private struct UpdateInstructionsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
-    /// Running from Homebrew's cellar means it was installed with `brew`.
+    /// Running from Homebrew's cellar means it was installed with `brew`. `brew services` starts it
+    /// through the opt symlink, which the bundle path keeps, so resolve that first.
     private var isHomebrewInstall: Bool {
-        Bundle.main.bundlePath.contains("/Cellar/")
+        Bundle.main.bundleURL.resolvingSymlinksInPath().path.contains("/Cellar/")
+    }
+
+    /// launchd sets XPC_SERVICE_NAME to the job's label: sh.brew.calendar-sync under `brew services`
+    /// (homebrew.mxcl.calendar-sync in older Homebrew). `brew upgrade` doesn't restart services.
+    private var isBrewService: Bool {
+        ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"]?.hasSuffix(".calendar-sync") == true
     }
 
     private var commands: String {
         isHomebrewInstall
-            ? "brew update\nbrew upgrade calendar-sync"
+            ? "brew update\nbrew upgrade calendar-sync" + (isBrewService ? "\nbrew services restart calendar-sync" : "")
             : """
             cd Calendar-Sync
             git pull

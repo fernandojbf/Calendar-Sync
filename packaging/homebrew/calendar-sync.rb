@@ -23,23 +23,41 @@ class CalendarSync < Formula
 
   def install
     # Builds with the system Swift toolchain (Xcode 15+ command line tools are enough)
-    # and ad-hoc signs, exactly like a manual source build.
-    system "scripts/build-app.sh"
+    # and ad-hoc signs, exactly like a manual source build. SwiftPM's own sandbox can't
+    # nest inside Homebrew's build sandbox ("sandbox_apply: Operation not permitted").
+    system "scripts/build-app.sh", "--disable-sandbox"
     prefix.install "build/Calendar Sync.app"
   end
 
   def caveats
     <<~EOS
-      Calendar Sync is a menu bar app. Start it with:
+      Calendar Sync is a menu bar app. To start it once:
         open "#{opt_prefix}/Calendar Sync.app"
 
-      If you use "Open at login", copy it into /Applications instead, so the
-      login item survives upgrades:
-        cp -a "#{opt_prefix}/Calendar Sync.app" /Applications/
+      To start it at every login, use brew services (below) rather than
+      "Open at login" in the app's Settings. The service runs the app from
+      #{opt_prefix}, which keeps pointing at the newest version
+      after brew upgrade. Leave the in-app switch off: only one copy runs at a
+      time, so a second login item would just start and quit.
+
+      Run brew services as the user who logs in to the desktop, even when
+      Homebrew belongs to a separate admin account: from an account that
+      isn't logged in, it fails with "Domain does not support specified
+      action". If Homebrew then refuses to load the formula from an
+      untrusted tap, run this from your account first:
+        brew trust --formula neteinstein/tap/calendar-sync
+
+      brew upgrade doesn't restart the running app. Do that with:
+        brew services restart calendar-sync
 
       The build is ad-hoc signed, so macOS asks for calendar access again
       after each upgrade. Your settings are kept.
     EOS
+  end
+
+  service do
+    run opt_prefix/"Calendar Sync.app/Contents/MacOS/CalendarSync"
+    process_type :interactive
   end
 
   test do

@@ -24,11 +24,15 @@ struct MenuView: View {
             }
             .font(.callout)
 
-            ForEach(controller.problems, id: \.self) { problem in
-                Label(problem, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+            // Problems are from the last sync; hide them while a new one runs so they don't
+            // look current. The sync replaces them with fresh results when it finishes.
+            if !controller.isSyncing {
+                ForEach(controller.problems, id: \.self) { problem in
+                    Label(problem, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             let outlookSources = settings.sources.filter { $0.kind == .outlookWeb }
@@ -47,7 +51,8 @@ struct MenuView: View {
                 Button("Sync now") {
                     Task { await controller.sync() }
                 }
-                .disabled(controller.isSyncing || !controller.hasCalendarAccess)
+                // Enabled without access too: a sync checks again whether access was granted.
+                .disabled(controller.isSyncing)
                 .keyboardShortcut("r")
 
                 Spacer()

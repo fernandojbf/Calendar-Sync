@@ -33,6 +33,18 @@ final class MenuCalendarTests: XCTestCase {
         XCTAssertEqual(days.last, date(2027, 2, 28))
     }
 
+    func testGridAcrossAMidnightClockChange() {
+        // São Paulo started summer time on 4 November 2018 at midnight: that day began at 01:00.
+        var saoPaulo = Calendar(identifier: .gregorian)
+        saoPaulo.timeZone = TimeZone(identifier: "America/Sao_Paulo")!
+        saoPaulo.firstWeekday = 2
+        let month = saoPaulo.date(from: DateComponents(year: 2018, month: 11, day: 15))!
+        let days = MenuCalendar.gridDays(for: month, calendar: saoPaulo)
+        XCTAssertEqual(days.count, 35, "29 October to 2 December")
+        XCTAssertEqual(Set(days.map { saoPaulo.startOfDay(for: $0) }).count, 35, "no day twice, none skipped")
+        XCTAssertEqual(days.map { saoPaulo.component(.day, from: $0) }.prefix(8), [29, 30, 31, 1, 2, 3, 4, 5])
+    }
+
     func testSectionsGroupByDaySoonestFirst() {
         let events = [
             SourceEvent(key: "b", title: "Later today", start: date(2026, 10, 24, hour: 15), end: date(2026, 10, 24, hour: 16)),
