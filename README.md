@@ -32,6 +32,8 @@ With [Homebrew](https://brew.sh/)
 ```bash
 brew install neteinstein/tap/calendar-sync
 open "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app"
+or
+brew services start neteinstein/tap/calendar-sync - Starts this at startup always
 ```
 
 Needs macOS 14+ and the Xcode command line tools. See [Get started](#get-started) for updating, building from source and first-run setup.
