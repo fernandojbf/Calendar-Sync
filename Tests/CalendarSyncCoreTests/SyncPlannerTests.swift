@@ -194,6 +194,15 @@ final class CopyMarkerTests: XCTestCase {
         XCTAssertEqual(CopyMarker.find(in: notes), marker)
     }
 
+    func testMarkerEndsWhereItsEncodingEnds() {
+        let marker = CopyMarker(sourceID: UUID(), key: "outlook:Réunion d’équipe|2026-10-23T09:00:00Z")
+        // Calendar servers can store notes as HTML, or put other text right after the marker.
+        for notes in ["<p>\(marker.encoded)</p>", "\(marker.encoded)\"", "x \(marker.encoded)\u{00A0}more", marker.encoded + ")",
+                      marker.encoded + "été", marker.encoded + "５"] {
+            XCTAssertEqual(CopyMarker.find(in: notes), marker, notes)
+        }
+    }
+
     func testNoMarker() {
         XCTAssertNil(CopyMarker.find(in: "Just a normal meeting"))
         XCTAssertNil(CopyMarker.find(in: nil))
