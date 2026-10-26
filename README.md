@@ -136,6 +136,7 @@ Every copy ends its notes with a tag like `calsync:v1:<source id>:<occurrence id
 <br>
 
 - It reads the same data your browser shows you. Nothing is sent anywhere except into your own calendar.
+- To Outlook it is one more Safari signed in to the account: the app's window runs the WebKit of the Safari installed on your Mac and reports its user agent, with its own cookie store. Microsoft's sign-in logs show it as Safari on macOS, and the same sign-in policies apply as to a browser.
 - It depends on how Outlook's web app works internally, which Microsoft can change without notice. If a sync can't find calendar data, or you've been signed out, the existing copies are **left as they are**. The menu bar icon then shows a warning and an **Open Outlook** button.
 - Reading a client's calendar this way may go against the client's IT or security policy. **Check with the client first**, and consider turning on **Hide meeting names** for that calendar.
 - Each Outlook calendar keeps its own sign-in, so you can add more than one.
