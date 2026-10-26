@@ -169,6 +169,26 @@ final class SyncPlannerTests: XCTestCase {
         XCTAssertEqual(after.updates, 1)
     }
 
+    func testAllDayCopiesAreComparedByDay() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let day = utc.date(from: DateComponents(year: 2026, month: 10, day: 26))!
+        var release = SourceEvent(key: "r", title: "Release day", start: day, end: day + 86400 - 1, isAllDay: true)
+        func plan(_ existing: [ExistingCopy]) -> SyncPlan {
+            SyncPlanner.plan(sources: [(source, .success([release]))], existing: existing, options: SyncOptions(), calendar: utc)
+        }
+        // The calendar hands the copy back ending at midnight rather than a second before it.
+        var stored = copies(from: plan([]))
+        stored[0].end = day + 86400
+        XCTAssertTrue(plan(stored).isEmpty, "the same day either way, so it isn't rewritten on every sync")
+
+        release.end += 86400
+        XCTAssertEqual(plan(stored).updates, 1, "a second day is a change")
+        release.start += 86400
+        release.end = release.start + 86400 - 1
+        XCTAssertEqual(plan(stored).updates, 1, "so is moving to another day")
+    }
+
     func testOptionsSavedByOlderVersionsKeepDefaults() throws {
         let old = #"{"daysAhead":7,"skipDeclined":false,"skipAllDay":true}"#
         let options = try JSONDecoder().decode(SyncOptions.self, from: Data(old.utf8))
