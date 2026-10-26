@@ -40,6 +40,13 @@ class CalendarSync < Formula
       after brew upgrade. Leave the in-app switch off: only one copy runs at a
       time, so a second login item would just start and quit.
 
+      Run brew services as the user who logs in to the desktop, even when
+      Homebrew belongs to a separate admin account: from an account that
+      isn't logged in, it fails with "Domain does not support specified
+      action". If Homebrew then refuses to load the formula from an
+      untrusted tap, run this from your account first:
+        brew trust --formula neteinstein/tap/calendar-sync
+
       brew upgrade doesn't restart the running app. Do that with:
         brew services restart calendar-sync
 
