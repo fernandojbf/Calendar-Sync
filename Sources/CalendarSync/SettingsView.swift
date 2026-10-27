@@ -7,7 +7,8 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralTab().tabItem { Label("General", systemImage: "gearshape") }
-            SourcesTab().tabItem { Label("Client calendars", systemImage: "calendar") }
+            SourcesTab().tabItem { Label("Client(s) to Main Calendar", systemImage: "calendar") }
+            TwoWaySyncTab().tabItem { Label("Two way sync", systemImage: "arrow.left.arrow.right") }
             PreviewTab().tabItem { Label("Preview", systemImage: "eye") }
             AuthorTab().tabItem { Label("Author", systemImage: "person.crop.circle") }
         }
@@ -47,7 +48,7 @@ private struct GeneralTab: View {
                 Toggle("Skip all-day events", isOn: $settings.options.skipAllDay)
                 Toggle("Skip out-of-office events", isOn: $settings.options.skipOutOfOffice)
             } footer: {
-                Text("Each client calendar can use its own interval instead (Client calendars tab). Calendar.app calendars also sync about 10 seconds after a change.")
+                Text("Each client calendar can use its own interval instead (Client(s) to Main Calendar tab). Calendar.app calendars also sync about 10 seconds after a change.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -125,7 +126,8 @@ private struct SourcesTab: View {
                             Button("\(calendar.title) (\(calendar.source.title))") {
                                 settings.sources.append(SourceConfig(
                                     kind: .eventKit(calendarID: calendar.calendarIdentifier),
-                                    calendarName: calendar.title))
+                                    calendarName: calendar.title,
+                                    showBusyInClient: settings.twoWaySync && calendar.allowsContentModifications))
                             }
                         }
                     }
@@ -198,25 +200,6 @@ private struct SourceRow: View {
                     get: { source.intervalMinutes ?? settings.intervalMinutes },
                     set: { source.intervalMinutes = $0 }))
             }
-            if case .eventKit(let calendarID) = source.kind {
-                let writable = controller.eventKit.calendar(id: calendarID)?.allowsContentModifications ?? false
-                Toggle("Show my main calendar here as “\(source.busyStyle.title)”", isOn: $source.showBusyInClient)
-                    .disabled(!writable && !source.showBusyInClient)
-                    .onChange(of: source.showBusyInClient) { _, _ in Task { await controller.sync() } }
-                if source.showBusyInClient {
-                    Picker("Show it as", selection: $source.busyStyle) {
-                        ForEach(BusyStyle.allCases, id: \.self) { style in
-                            Text(style.title).tag(style)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: source.busyStyle) { _, _ in Task { await controller.sync() } }
-                }
-                if !writable {
-                    Text("This calendar is read-only, so Busy events can't be added to it.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
             HStack {
                 if source.kind == .outlookWeb {
                     Button("Open Outlook window") { controller.showOutlookWindow(for: source) }
@@ -252,13 +235,107 @@ private struct SourceRow: View {
                 ? " Location and description aren't copied while meeting names are hidden."
                 : " The location and description are copied too."
         }
-        if source.showBusyInClient {
-            text += " Your main calendar's events also appear here as “\(source.busyStyle.title)”, with no other details."
-        }
         let minutes = SyncSchedule.interval(for: source, defaultMinutes: settings.intervalMinutes)
         text += " Synced every \(minutes) \(minutes == 1 ? "minute" : "minutes")"
         if case .eventKit = source.kind { text += " and about 10 seconds after a change" }
         return text + "."
+    }
+}
+
+// MARK: - Two way sync
+
+/// Pushes the main calendar into the client calendars, as Busy events with no other details.
+private struct TwoWaySyncTab: View {
+    @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var controller: SyncController
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Sync both ways", isOn: $settings.twoWaySync)
+                    .onChange(of: settings.twoWaySync) { _, on in
+                        if on { showBusyInEveryClientIfNoneChosen() }
+                        Task { await controller.sync() }
+                    }
+            } footer: {
+                Text("Your main calendar's events are also added to your client calendars as “Busy”, with nothing else: no title, link, location or attendees. Their description is “Busy” too, so you can tell what was added automatically. Copies of a client's own meetings aren't added back to it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            if settings.twoWaySync {
+                if !settings.sources.contains(where: { if case .eventKit = $0.kind { true } else { false } }) {
+                    Section {
+                        Text("Add a client calendar from Calendar.app in the Client(s) to Main Calendar tab first.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                ForEach($settings.sources) { $source in
+                    if case .eventKit(let calendarID) = source.kind {
+                        BusyRow(source: $source, calendarID: calendarID)
+                    }
+                }
+                if settings.sources.contains(where: { $0.kind == .outlookWeb }) {
+                    Section {
+                        Text("Outlook on the web calendars are read-only, so Busy events can't be added to them.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// Turned on before any client calendar was chosen: choose every one Busy events can be
+    /// added to. Choices made earlier are kept.
+    private func showBusyInEveryClientIfNoneChosen() {
+        guard !settings.sources.contains(where: \.showBusyInClient) else { return }
+        settings.sources = settings.sources.map { source in
+            var source = source
+            if case .eventKit(let calendarID) = source.kind,
+               controller.eventKit.calendar(id: calendarID)?.allowsContentModifications == true {
+                source.showBusyInClient = true
+            }
+            return source
+        }
+    }
+}
+
+/// Whether, and as what, the main calendar is shown in one client calendar.
+private struct BusyRow: View {
+    @Binding var source: SourceConfig
+    let calendarID: String
+    @EnvironmentObject private var controller: SyncController
+
+    var body: some View {
+        let calendar = controller.eventKit.calendar(id: calendarID)
+        let writable = calendar?.allowsContentModifications ?? false
+        Section {
+            Toggle("Show my main calendar here as “\(source.busyStyle.title)”", isOn: $source.showBusyInClient)
+                .disabled(!writable && !source.showBusyInClient)
+                .onChange(of: source.showBusyInClient) { _, _ in Task { await controller.sync() } }
+            if source.showBusyInClient {
+                Picker("Show it as", selection: $source.busyStyle) {
+                    ForEach(BusyStyle.allCases, id: \.self) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: source.busyStyle) { _, _ in Task { await controller.sync() } }
+            }
+            if !writable {
+                Text("This calendar is read-only, so Busy events can't be added to it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if !source.isEnabled {
+                Text("Syncing this calendar is off, so its Busy events are left as they are.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        } header: {
+            if let calendar {
+                CalendarLabel(calendar: calendar)
+            } else {
+                Label("Calendar no longer in Calendar.app", systemImage: "exclamationmark.triangle")
+            }
+        }
     }
 }
 
