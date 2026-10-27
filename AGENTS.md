@@ -8,15 +8,19 @@ Every change that lands on `main` ships as a new version, and Homebrew users onl
 the tap serves it. So every PR:
 
 1. Bumps the version in the same PR: raise the last number of `X.Y.Z` by one (`1.0.1` to
-   `1.0.2`) unless asked for a bigger bump, and raise the build number by one.
+   `1.0.2`) unless asked for a bigger bump, raise the build number by one, and update the
+   version badge at the top of [`README.md`](README.md) to the new version.
 2. Is followed by a PR on [neteinstein/homebrew-tap](https://github.com/neteinstein/homebrew-tap)
    that feeds the new version to Homebrew, as described next.
 
 ## Bumping the version
 
 The version is `CFBundleShortVersionString` (and the `CFBundleVersion` build number) in
-[`Support/Info.plist`](Support/Info.plist). Homebrew users only get a new version when the
-formula in the tap changes, so **every version bump must be followed by a PR on
+[`Support/Info.plist`](Support/Info.plist). The version badge at the top of
+[`README.md`](README.md) repeats `CFBundleShortVersionString` in both its alt text and its
+URL (`Version X.Y.Z` and `badge/version-X.Y.Z-...`), so change both whenever the version
+changes. Homebrew users only get a new version when the formula in the tap changes, so
+**every version bump must be followed by a PR on
 [neteinstein/homebrew-tap](https://github.com/neteinstein/homebrew-tap)** that updates
 `Formula/calendar-sync.rb`. A bump isn't done until the tap serves it.
 
