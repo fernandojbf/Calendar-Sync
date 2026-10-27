@@ -11,6 +11,8 @@ final class SettingsStore: ObservableObject {
     @Published var menuCalendarEnabled: Bool { didSet { defaults.set(menuCalendarEnabled, forKey: "menuCalendarEnabled") } }
     /// What the icon shows next to today's date while the menu calendar is on.
     @Published var menuBar: MenuBarOptions { didSet { save(menuBar, "menuBar") } }
+    /// How the menu's month view lays out a week.
+    @Published var menuCalendar: MenuCalendarOptions { didSet { save(menuCalendar, "menuCalendar") } }
     @Published var targetCalendarID: String? { didSet { defaults.set(targetCalendarID, forKey: "targetCalendarID") } }
     @Published var intervalMinutes: Int { didSet { defaults.set(intervalMinutes, forKey: "intervalMinutes") } }
     /// The main calendar is also shown as Busy in the client calendars, in each one whose
@@ -32,6 +34,7 @@ final class SettingsStore: ObservableObject {
         alerts = Self.load(EventAlertOptions.self, "alerts", defaults) ?? EventAlertOptions()
         menuCalendarEnabled = defaults.bool(forKey: "menuCalendarEnabled")
         menuBar = Self.load(MenuBarOptions.self, "menuBar", defaults) ?? MenuBarOptions()
+        menuCalendar = Self.load(MenuCalendarOptions.self, "menuCalendar", defaults) ?? MenuCalendarOptions()
         targetCalendarID = defaults.string(forKey: "targetCalendarID")
         let interval = defaults.integer(forKey: "intervalMinutes")
         intervalMinutes = interval > 0 ? interval : 15

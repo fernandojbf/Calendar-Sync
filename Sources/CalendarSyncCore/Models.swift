@@ -131,6 +131,40 @@ public struct MenuBarOptions: Codable, Hashable, Sendable {
     }
 }
 
+/// How the menu's month view lays out a week.
+public struct MenuCalendarOptions: Codable, Hashable, Sendable {
+    public enum WeekStart: String, Codable, CaseIterable, Sendable {
+        /// Whatever macOS uses for the current region.
+        case system, sunday, monday
+    }
+
+    public var weekStart: WeekStart
+    public var showsWeekends: Bool
+
+    public init(weekStart: WeekStart = .system, showsWeekends: Bool = true) {
+        self.weekStart = weekStart
+        self.showsWeekends = showsWeekends
+    }
+
+    // Settings saved by older versions don't have every key yet.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        weekStart = try c.decodeIfPresent(WeekStart.self, forKey: .weekStart) ?? .system
+        showsWeekends = try c.decodeIfPresent(Bool.self, forKey: .showsWeekends) ?? true
+    }
+
+    /// `calendar` with its first weekday set to the chosen one.
+    public func applied(to calendar: Calendar) -> Calendar {
+        var calendar = calendar
+        switch weekStart {
+        case .system: break
+        case .sunday: calendar.firstWeekday = 1
+        case .monday: calendar.firstWeekday = 2
+        }
+        return calendar
+    }
+}
+
 /// A single meeting occurrence read from a source, independent of where it came from.
 public struct SourceEvent: Hashable, Sendable {
     /// Stable per occurrence: stays the same when the meeting is moved, so the copy is

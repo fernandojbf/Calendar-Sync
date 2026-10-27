@@ -4,7 +4,8 @@ import Foundation
 public enum MenuCalendar {
     /// Every day shown in a month grid: the month's days, padded to whole weeks with the
     /// neighbouring months' days. Always whole weeks, starting on the calendar's first weekday.
-    public static func gridDays(for month: Date, calendar: Calendar) -> [Date] {
+    /// Without weekends, each week keeps only its working days.
+    public static func gridDays(for month: Date, calendar: Calendar, showsWeekends: Bool = true) -> [Date] {
         guard let monthInterval = calendar.dateInterval(of: .month, for: month),
               let firstWeek = calendar.dateInterval(of: .weekOfYear, for: monthInterval.start),
               let lastDay = calendar.date(byAdding: .day, value: -1, to: monthInterval.end),
@@ -14,11 +15,24 @@ public enum MenuCalendar {
         var days: [Date] = []
         var day = firstWeek.start
         while day < lastWeek.end {
-            days.append(day)
+            if showsWeekends || !calendar.isDateInWeekend(day) {
+                days.append(day)
+            }
             guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
             day = next
         }
         return days
+    }
+
+    /// The weekdays (1 is Sunday) of a grid's columns, in order, starting on the calendar's
+    /// first weekday.
+    public static func weekdays(calendar: Calendar, showsWeekends: Bool = true) -> [Int] {
+        guard let week = calendar.dateInterval(of: .weekOfYear, for: Date()) else { return [] }
+        return (0..<7).compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset, to: week.start),
+                  showsWeekends || !calendar.isDateInWeekend(day) else { return nil }
+            return calendar.component(.weekday, from: day)
+        }
     }
 
     /// One day of the list view, with its events soonest first.

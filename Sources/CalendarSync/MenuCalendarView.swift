@@ -17,7 +17,8 @@ struct MenuCalendarView: View {
         case month, list
     }
 
-    private var calendar: Calendar { Calendar.current }
+    private var calendar: Calendar { settings.menuCalendar.applied(to: .current) }
+    private var showsWeekends: Bool { settings.menuCalendar.showsWeekends }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -42,6 +43,7 @@ struct MenuCalendarView: View {
         .onAppear { reload() }
         .onChange(of: mode) { _, _ in reload() }
         .onChange(of: shownMonth) { _, _ in reload() }
+        .onChange(of: settings.menuCalendar) { _, _ in reload() }
         .onChange(of: controller.lastSync) { _, _ in reload() }
     }
 
@@ -56,7 +58,7 @@ struct MenuCalendarView: View {
         let (from, to): (Date, Date)
         switch mode {
         case .month:
-            let days = MenuCalendar.gridDays(for: shownMonth, calendar: calendar)
+            let days = MenuCalendar.gridDays(for: shownMonth, calendar: calendar, showsWeekends: showsWeekends)
             guard let first = days.first, let last = days.last,
                   let end = calendar.date(byAdding: .day, value: 1, to: last) else { return }
             (from, to) = (first, end)
@@ -93,24 +95,20 @@ struct MenuCalendarView: View {
             }
             .buttonStyle(.borderless)
 
-            let days = MenuCalendar.gridDays(for: shownMonth, calendar: calendar)
+            let days = MenuCalendar.gridDays(for: shownMonth, calendar: calendar, showsWeekends: showsWeekends)
             let busyDays = Set(events.map { calendar.startOfDay(for: $0.start) })
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
-                ForEach(weekdaySymbols, id: \.self) { symbol in
-                    Text(symbol).font(.caption2).foregroundStyle(.secondary)
+            let weekdays = MenuCalendar.weekdays(calendar: calendar, showsWeekends: showsWeekends)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: weekdays.count), spacing: 2) {
+                // By weekday: the very short symbols repeat (two "T"s, two "S"s).
+                ForEach(weekdays, id: \.self) { weekday in
+                    Text(calendar.veryShortStandaloneWeekdaySymbols[weekday - 1])
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
                 ForEach(days, id: \.self) { day in
                     dayCell(day, hasEvents: busyDays.contains(calendar.startOfDay(for: day)))
                 }
             }
         }
-    }
-
-    /// Weekday initials starting on the calendar's first weekday.
-    private var weekdaySymbols: [String] {
-        let symbols = calendar.veryShortStandaloneWeekdaySymbols
-        let first = calendar.firstWeekday - 1
-        return Array(symbols[first...] + symbols[..<first])
     }
 
     private func dayCell(_ day: Date, hasEvents: Bool) -> some View {

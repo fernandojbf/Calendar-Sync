@@ -45,6 +45,33 @@ final class MenuCalendarTests: XCTestCase {
         XCTAssertEqual(days.map { saoPaulo.component(.day, from: $0) }.prefix(8), [29, 30, 31, 1, 2, 3, 4, 5])
     }
 
+    func testGridStartingOnSunday() {
+        let sunday = MenuCalendarOptions(weekStart: .sunday).applied(to: utc)
+        let days = MenuCalendar.gridDays(for: date(2026, 10, 24), calendar: sunday)
+        XCTAssertEqual(days.first, date(2026, 9, 27), "padded back to Sunday the 27th of September")
+        XCTAssertEqual(days.last, date(2026, 10, 31), "the 31st is a Saturday, so no padding forward")
+        XCTAssertEqual(MenuCalendar.weekdays(calendar: sunday), [1, 2, 3, 4, 5, 6, 7])
+        XCTAssertEqual(MenuCalendar.weekdays(calendar: utc), [2, 3, 4, 5, 6, 7, 1])
+        XCTAssertEqual(MenuCalendarOptions().applied(to: utc).firstWeekday, 2, "system keeps the calendar's own")
+    }
+
+    func testGridWithoutWeekends() {
+        for weekStart in [MenuCalendarOptions.WeekStart.monday, .sunday] {
+            let calendar = MenuCalendarOptions(weekStart: weekStart).applied(to: utc)
+            let days = MenuCalendar.gridDays(for: date(2026, 10, 24), calendar: calendar, showsWeekends: false)
+            XCTAssertEqual(days.count, 25, "five weeks of five working days")
+            XCTAssertFalse(days.contains { calendar.isDateInWeekend($0) })
+            XCTAssertEqual(days.first, date(2026, 9, 28))
+            XCTAssertEqual(days.last, date(2026, 10, 30))
+            XCTAssertEqual(MenuCalendar.weekdays(calendar: calendar, showsWeekends: false), [2, 3, 4, 5, 6])
+        }
+    }
+
+    func testOptionsFromOlderSettings() throws {
+        let options = try JSONDecoder().decode(MenuCalendarOptions.self, from: Data("{}".utf8))
+        XCTAssertEqual(options, MenuCalendarOptions(weekStart: .system, showsWeekends: true))
+    }
+
     func testSectionsGroupByDaySoonestFirst() {
         let events = [
             SourceEvent(key: "b", title: "Later today", start: date(2026, 10, 24, hour: 15), end: date(2026, 10, 24, hour: 16)),
