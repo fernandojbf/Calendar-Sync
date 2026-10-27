@@ -34,6 +34,13 @@ class CalendarSync < Formula
       Calendar Sync is a menu bar app. To start it once:
         open "#{opt_prefix}/Calendar Sync.app"
 
+      To have it in your Applications folder too, link it there once:
+        ln -s "#{opt_prefix}/Calendar Sync.app" /Applications/
+      The link goes through #{opt_prefix}, so it opens the newest version
+      after brew upgrade. Finder and the Dock treat it as the app; Spotlight
+      and Launchpad don't list linked apps. brew uninstall leaves it behind:
+        rm "/Applications/Calendar Sync.app"
+
       To start it at every login, use brew services (below) rather than
       "Open at login" in the app's Settings. The service runs the app from
       #{opt_prefix}, which keeps pointing at the newest version
