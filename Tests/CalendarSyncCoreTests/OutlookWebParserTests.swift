@@ -56,6 +56,30 @@ final class OutlookWebParserTests: XCTestCase {
         XCTAssertEqual(events.map(\.key), ["1"])
     }
 
+    func testSkipsMailAboutMeetings() {
+        // Mail Outlook loads with the calendar: a reply, an invitation, a cancellation notice and
+        // a reply with no type, all with the meeting's times. Only the meeting is an event, even
+        // inside a response whose own type names a message.
+        let json = """
+        {"Body":{"ResponseMessages":{"Items":[{"__type":"FindItemResponseMessage:#Exchange","Items":[
+          {"__type":"CalendarItem:#Exchange","ItemId":{"Id":"meeting"},"Subject":"AI talk","ItemClass":"IPM.Appointment",
+           "Start":"2026-10-28T11:00:00Z","End":"2026-10-28T12:30:00Z"},
+          {"__type":"MeetingResponseMessage:#Exchange","ItemId":{"Id":"reply"},"Subject":"Declined: AI talk",
+           "Start":"2026-10-28T11:00:00Z","End":"2026-10-28T12:30:00Z"},
+          {"ItemId":{"Id":"invitation"},"Subject":"AI talk","ItemClass":"IPM.Schedule.Meeting.Request",
+           "Start":"2026-10-28T11:00:00Z","End":"2026-10-28T12:30:00Z"},
+          {"ItemId":{"Id":"untyped"},"Subject":"Accepted: AI talk",
+           "Start":"2026-10-28T11:00:00Z","End":"2026-10-28T12:30:00Z"}]}]}},
+         "value":[{"@odata.type":"#microsoft.graph.eventMessageRequest","id":"graph","subject":"AI talk",
+           "start":{"dateTime":"2026-10-28T11:00:00","timeZone":"UTC"},"end":{"dateTime":"2026-10-28T12:30:00","timeZone":"UTC"}},
+          {"__typename":"Message","id":"graphql","subject":"Canceled: AI talk",
+           "start":"2026-10-28T11:00:00Z","end":"2026-10-28T12:30:00Z"}]}
+        """
+        let payloads = [Data(json.utf8)]
+        XCTAssertEqual(OutlookWebParser.events(fromPayloads: payloads).map(\.key), ["meeting"])
+        XCTAssertEqual(OutlookWebParser.itemIDs(fromPayloads: payloads), ["meeting"], "mail isn't loaded in full either")
+    }
+
     func testWeekViewIsCompletedWithFullMeetingDetails() {
         // The week view has no body and no join link, as Outlook on the web sends it.
         let week = """

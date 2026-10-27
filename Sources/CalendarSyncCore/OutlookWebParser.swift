@@ -148,7 +148,8 @@ public enum OutlookWebParser {
               let startField = obj.value("start"), let endField = obj.value("end"),
               var start = date(startField, fallbackZone: obj.string("startTimeZone") ?? obj.string("originalStartTimeZone")),
               var end = date(endField, fallbackZone: obj.string("endTimeZone") ?? obj.string("originalEndTimeZone")),
-              let id = itemID(obj)
+              let id = itemID(obj),
+              !isMeetingMail(obj, subject: subject)
         else { return nil }
 
         let isAllDay = obj.bool("isAllDay") ?? obj.bool("isAllDayEvent") ?? false
@@ -198,6 +199,31 @@ public enum OutlookWebParser {
             notes: notes,
             location: location
         )
+    }
+
+    /// Mail about a meeting: an invitation, a reply ("Declined: Standup") or a cancellation
+    /// notice. Outlook loads mail along with the calendar, and this mail has the meeting's
+    /// subject, start and end, so it would be copied as a meeting of its own. A reply stays in
+    /// the inbox after the meeting is deleted, and its copy with it.
+    static func isMeetingMail(_ obj: Obj, subject: String) -> Bool {
+        // OWA "MeetingResponseMessage:#Exchange", Graph "#microsoft.graph.eventMessageRequest",
+        // GraphQL "Message". Meetings are "CalendarItem:#Exchange", "#microsoft.graph.event", …
+        if let type = obj.string("__type") ?? obj.string("@odata.type") ?? obj.string("__typename") {
+            let name = type.prefix { $0 != ":" }.split(separator: ".").last.map { $0.lowercased() } ?? ""
+            if name.contains("message")
+                || ["meetingrequest", "meetingresponse", "meetingcancellation"].contains(where: name.hasPrefix) {
+                return true
+            }
+        }
+        // Meetings are IPM.Appointment; mail about them IPM.Schedule.Meeting.*, other mail IPM.Note.
+        if let itemClass = obj.string("itemClass")?.lowercased(),
+           itemClass.hasPrefix("ipm.schedule.meeting.") || itemClass.hasPrefix("ipm.note") {
+            return true
+        }
+        // Graph's meeting mail says which kind it is.
+        if obj.has("meetingMessageType") { return true }
+        // Mail sent without a type: Exchange starts the subject of a reply with the answer.
+        return subject.range(of: #"^(Accepted|Tentative|Declined):"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     static func joinURL(_ obj: Obj) -> String? {
