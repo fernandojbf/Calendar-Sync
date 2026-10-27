@@ -34,9 +34,9 @@ public struct SourceConfig: Codable, Hashable, Identifiable, Sendable {
     /// When on, copies are titled `[Calendar A] Busy` instead of using the meeting name.
     public var hideMeetingName: Bool
     public var isEnabled: Bool
-    /// When on, events in the main calendar are also added to this client calendar as plain
-    /// "Busy" or "Out of office" events with no other details. Only possible for calendars
-    /// that can be edited.
+    /// While syncing both ways, events in the main calendar are also added to this client
+    /// calendar as plain "Busy" or "Out of office" events with no other details. Only possible
+    /// for calendars that can be edited.
     public var showBusyInClient: Bool
     /// What those events say: "Busy" or "Out of office".
     public var busyStyle: BusyStyle
@@ -180,9 +180,10 @@ public struct SourceEvent: Hashable, Sendable {
     }
 }
 
-/// What a copy in the target calendar should look like.
+/// What a copy in the target calendar, or a Busy event in a client calendar, should look like.
 public struct CopySpec: Hashable, Sendable {
-    public var marker: CopyMarker
+    /// The hidden tag at the end of the notes. Nil for a Busy event, which carries none.
+    public var marker: CopyMarker?
     public var title: String
     public var start: Date
     public var end: Date
@@ -194,7 +195,7 @@ public struct CopySpec: Hashable, Sendable {
     /// Saved with "Out of office" availability where the calendar supports it, "Busy" otherwise.
     public var isOutOfOffice: Bool
 
-    public init(marker: CopyMarker, title: String, start: Date, end: Date, isAllDay: Bool,
+    public init(marker: CopyMarker?, title: String, start: Date, end: Date, isAllDay: Bool,
                 timeZone: TimeZone?, url: URL?, notes: String, location: String? = nil,
                 isOutOfOffice: Bool = false) {
         self.marker = marker
@@ -210,11 +211,12 @@ public struct CopySpec: Hashable, Sendable {
     }
 }
 
-/// A copy that already exists in the target calendar.
+/// A copy that already exists in the target calendar, or a Busy event in a client calendar.
 public struct ExistingCopy: Hashable, Sendable {
     /// `EKEvent.eventIdentifier`, used to update or delete it.
     public var eventID: String
-    public var marker: CopyMarker
+    /// Nil for a Busy event, unless an older version made it.
+    public var marker: CopyMarker?
     public var title: String
     public var start: Date
     public var end: Date
@@ -223,7 +225,7 @@ public struct ExistingCopy: Hashable, Sendable {
     public var notes: String
     public var location: String?
 
-    public init(eventID: String, marker: CopyMarker, title: String, start: Date, end: Date,
+    public init(eventID: String, marker: CopyMarker?, title: String, start: Date, end: Date,
                 isAllDay: Bool, url: URL?, notes: String, location: String? = nil) {
         self.eventID = eventID
         self.marker = marker

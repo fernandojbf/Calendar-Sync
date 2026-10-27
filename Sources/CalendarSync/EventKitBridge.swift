@@ -80,11 +80,9 @@ final class EventKitBridge {
             guard let marker = CopyMarker.find(in: event.notes), let eventID = event.eventIdentifier,
                   let start = event.startDate as Date?, let end = event.endDate as Date?
             else { return nil }
-            // Exchange and Google may drop the event URL and change line endings. Read it the
-            // way we wrote it, so unchanged copies aren't rewritten on every sync.
-            let notes = (event.notes ?? "")
-                .replacingOccurrences(of: "\r\n", with: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // Exchange and Google may drop the event URL. Read it the way we wrote it, so
+            // unchanged copies aren't rewritten on every sync.
+            let notes = Self.storedNotes(event)
             return ExistingCopy(
                 eventID: eventID,
                 marker: marker,
@@ -97,6 +95,41 @@ final class EventKitBridge {
                 location: event.location
             )
         }
+    }
+
+    /// The Busy events in a client calendar (see `CopyFormatter.isBusyEvent`). Ones made by
+    /// older versions come with their marker.
+    func busyEvents(calendarID: String, from start: Date, to end: Date) -> [ExistingCopy]? {
+        guard let calendar = store.calendar(withIdentifier: calendarID) else { return nil }
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: [calendar])
+        return store.events(matching: predicate).compactMap { event in
+            // Busy events never have attendees or repeat, so a client meeting that only looks
+            // like one is left alone.
+            guard !event.hasAttendees, !event.hasRecurrenceRules,
+                  CopyFormatter.isBusyEvent(title: event.title, notes: event.notes),
+                  let eventID = event.eventIdentifier,
+                  let start = event.startDate as Date?, let end = event.endDate as Date?
+            else { return nil }
+            return ExistingCopy(
+                eventID: eventID,
+                marker: CopyMarker.find(in: event.notes),
+                title: event.title ?? "",
+                start: start,
+                end: end,
+                isAllDay: event.isAllDay,
+                url: event.url,
+                notes: Self.storedNotes(event),
+                location: event.location
+            )
+        }
+    }
+
+    /// Exchange and Google may change line endings. Read notes the way we wrote them, so
+    /// unchanged events aren't rewritten on every sync.
+    private static func storedNotes(_ event: EKEvent) -> String {
+        (event.notes ?? "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Writing
