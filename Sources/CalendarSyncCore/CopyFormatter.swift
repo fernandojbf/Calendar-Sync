@@ -36,35 +36,38 @@ public enum CopyFormatter {
     }
 
     /// A main-calendar event shown in a client calendar: the time and "Busy" (or "Out of
-    /// office"), nothing else. The notes hold only the hidden marker, whose key is a hash so
-    /// it reveals nothing about the original event.
+    /// office"), nothing else. The description says "Busy" too, and there is no hidden marker,
+    /// so nothing in the client calendar points back to the original event or to this app.
     public static func busySpec(for event: SourceEvent, source: SourceConfig) -> CopySpec {
-        let marker = CopyMarker(sourceID: source.id, key: busyKeyPrefix + stableHash(event.key))
-        return CopySpec(
-            marker: marker,
+        CopySpec(
+            marker: nil,
             title: source.busyStyle.title,
             start: event.start,
             end: event.end,
             isAllDay: event.isAllDay,
             timeZone: event.isAllDay ? nil : event.timeZone,
             url: nil,
-            notes: marker.encoded,
+            notes: busyNotes,
             isOutOfOffice: source.busyStyle == .outOfOffice
         )
     }
 
-    /// Starts the marker key of every Busy event.
-    static let busyKeyPrefix = "busy-"
+    /// The whole description of every Busy event. It's how they are told apart from the
+    /// client's own events.
+    public static let busyNotes = "Busy"
 
-    /// FNV-1a, 64-bit. Stable across launches and platforms (unlike `Hasher`).
-    static func stableHash(_ string: String) -> String {
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in string.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x100000001b3
-        }
-        return String(hash, radix: 16)
+    /// Whether an event in a client calendar is a Busy event: titled like one with "Busy" as
+    /// its description, or carrying the hidden marker older versions gave them.
+    public static func isBusyEvent(title: String?, notes: String?) -> Bool {
+        if let marker = CopyMarker.find(in: notes) { return marker.key.hasPrefix(busyKeyPrefix) }
+        let title = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Calendar servers can hand the description back as HTML.
+        return BusyStyle.allCases.contains { $0.title == title }
+            && HTMLText.plainText(from: notes ?? "") == busyNotes
     }
+
+    /// Starts the marker key of the Busy events older versions made.
+    static let busyKeyPrefix = "busy-"
 
     public static func spec(for event: SourceEvent, source: SourceConfig) -> CopySpec {
         let marker = CopyMarker(sourceID: source.id, key: event.key)

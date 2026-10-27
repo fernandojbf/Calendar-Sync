@@ -94,8 +94,8 @@ It never copies attendees, so no invites go out. It never copies its own copies 
 <tr>
 <td colspan="2" valign="top">
 
-### ↩️ Show your main calendar as Busy at the client
-Optional, per client calendar. Your main calendar's events are added to the client calendar as plain **Busy** events — or **Out of office**, your pick — with the time and nothing else: no title, link, location or attendees. Copies of that client's own meetings are skipped, and meetings copied from other clients do show, so each client sees the time the others have booked. It needs a client calendar you can edit in Calendar.app; Outlook on the web and `.ics` link calendars are read-only.
+### ↩️ Sync both ways
+Optional, in the **Two way sync** tab. Your main calendar's events are added to your client calendars as plain **Busy** events — or **Out of office**, your pick per calendar — with the time and nothing else: no title, link, location or attendees. Their description is just “Busy”, so you can tell what was added automatically, and nothing in them names the app. Copies of a client's own meetings are skipped, and meetings copied from other clients do show, so each client sees the time the others have booked. It needs client calendars you can edit in Calendar.app; Outlook on the web and `.ics` link calendars are read-only.
 
 </td>
 </tr>
@@ -119,10 +119,12 @@ flowchart LR
     B[".ics calendar link<br/>(subscribed)"] --> S
     C["Outlook on the web<br/>(sign in once)"] --> S
     S{{"Calendar Sync<br/>plan: add · update · remove"}} --> M["Main calendar<br/>[Calendar A] Sprint planning ▶ Join"]
-    M -. "optional: Busy, no details" .-> A
+    M -. "Two way sync: Busy, no details" .-> A
 ```
 
 Every copy ends its notes with a tag like `calsync:v1:<source id>:<occurrence id>`. The app uses it to recognise its own copies and match them to their originals, which is why a moved meeting gets updated instead of duplicated.
+
+The Busy events that two way sync adds to client calendars carry no tag. The app recognises them by their title (**Busy** or **Out of office**), their description (just “Busy”) and having no attendees, and matches them to your main calendar by time. So in a client calendar that two way sync writes to, an event you make yourself that looks exactly like that is treated as one of them.
 
 ## Client calendars it can read
 
@@ -173,8 +175,9 @@ To update later: quit the app, then `git pull && scripts/build-app.sh` and reope
 Allow calendar access on first launch. Then open **Settings…** from the menu bar icon:
 
 1. **General:** choose your **main calendar** (the one meetings are copied into), how many days ahead, and how often to sync. Turn on the **full-screen alert** here if you want one when each meeting starts.
-2. **Client calendars:** add each client calendar. For Outlook on the web, also give it a calendar name. Optionally turn on **Copy location and description**, **Use its own sync interval**, or **Show my main calendar here as “Busy”** for any client that should see when you're busy — shown as **Busy** or **Out of office**, whichever you pick.
-3. **Preview:** see what a sync would change, then let it run.
+2. **Client(s) to Main Calendar:** add each client calendar. For Outlook on the web, also give it a calendar name. Optionally turn on **Copy location and description** or **Use its own sync interval**.
+3. **Two way sync:** turn on **Sync both ways** to show your main calendar as **Busy** in your client calendars, so they all show the same booked time. Turning it on includes every client calendar you can edit; turn off **Show my main calendar here** for any that shouldn't, or pick **Out of office** instead of **Busy**.
+4. **Preview:** see what a sync would change, then let it run.
 
 > [!NOTE]
 > Local builds are ad-hoc signed, so macOS asks for calendar access again after each rebuild.
@@ -197,7 +200,7 @@ The tests cover the sync rules: titles, meeting links, details, moves, deletes, 
 ### Known limits
 
 - Calendar.app refreshes accounts every few minutes, so changes made on the client side show up with that delay.
-- If you remove a client calendar from the app, the copies already made from it stay in your calendar. Delete them in Calendar if you no longer want them.
+- If you remove a client calendar from the app, the copies already made from it stay in your calendar, and the Busy events two way sync added to it stay in the client calendar. Delete them in Calendar if you no longer want them. To have the app take the Busy events back, turn off **Show my main calendar here** (or **Sync both ways**) and let it sync before removing the calendar.
 
 
 ## License

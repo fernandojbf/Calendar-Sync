@@ -189,36 +189,44 @@ final class SyncController: ObservableObject {
             ignoreStoreChangesUntil = .now + .seconds(5)
         }
 
-        // Then show the main calendar (now including the new copies) as Busy in the client
-        // calendars that ask for it, and take the Busy events back from ones that no longer do.
+        // Then, when syncing both ways, show the main calendar (now including the new copies)
+        // as Busy in the client calendars that ask for it, and take the Busy events back from
+        // ones that no longer do.
         var busyPlans: [BusyPreview] = []
         for source in settings.sources where source.isEnabled {
             guard case .eventKit(let calendarID) = source.kind, calendarID != targetID,
                   let calendar = eventKit.calendar(id: calendarID) else { continue }
-            let busy: SyncPlan
-            if source.showBusyInClient {
-                guard calendar.allowsContentModifications else {
-                    problems.append("\(calendar.title): read-only, so Busy events can't be added.")
-                    continue
-                }
-                busy = SyncPlanner.planBusy(
+            let showsBusy = settings.twoWaySync && source.showBusyInClient
+            guard calendar.allowsContentModifications else {
+                if showsBusy { problems.append("\(calendar.title): read-only, so Busy events can't be added.") }
+                continue
+            }
+            let existingBusy = eventKit.busyEvents(calendarID: calendarID, from: start, to: end) ?? []
+            let busy = showsBusy
+                ? SyncPlanner.planBusy(
                     for: source,
                     mainEvents: eventKit.sourceEvents(calendarID: targetID, from: start, to: end),
-                    existing: eventKit.existingCopies(targetID: calendarID, from: start, to: end) ?? [],
+                    existing: existingBusy,
                     options: settings.options)
-            } else {
-                guard calendar.allowsContentModifications else { continue }
-                busy = SyncPlanner.planBusyRemoval(
-                    for: source, existing: eventKit.existingCopies(targetID: calendarID, from: start, to: end) ?? [])
-                if busy.isEmpty { continue }
-            }
+                : SyncPlanner.planBusyRemoval(
+                    existing: existingBusy, addedHere: settings.busyCalendarIDs.contains(calendarID))
             problems += busy.failedSources.values.map { "\(calendar.title) (Busy): \($0)" }
             if apply {
-                ignoreStoreChangesUntil = .now + .seconds(5)
-                problems += eventKit.apply(busy, targetID: calendarID).map { "\(calendar.title) (Busy): \($0)" }
-                ignoreStoreChangesUntil = .now + .seconds(5)
+                // Recorded before writing, so the Busy events are taken back later even if
+                // some of them fail to save now.
+                if showsBusy { settings.busyCalendarIDs.insert(calendarID) }
+                var errors: [String] = []
+                if !busy.isEmpty {
+                    ignoreStoreChangesUntil = .now + .seconds(5)
+                    errors = eventKit.apply(busy, targetID: calendarID)
+                    ignoreStoreChangesUntil = .now + .seconds(5)
+                }
+                problems += errors.map { "\(calendar.title) (Busy): \($0)" }
+                if !showsBusy && errors.isEmpty { settings.busyCalendarIDs.remove(calendarID) }
             }
-            busyPlans.append(BusyPreview(id: source.id, calendarName: calendar.title, plan: busy))
+            if showsBusy || !busy.isEmpty {
+                busyPlans.append(BusyPreview(id: source.id, calendarName: calendar.title, plan: busy))
+            }
         }
 
         if apply {
