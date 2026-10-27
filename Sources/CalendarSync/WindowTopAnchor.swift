@@ -1,53 +1,35 @@
 import AppKit
 import SwiftUI
 
-/// Keeps the top edge of the window showing the view in place when the view changes height.
+/// Shrinks the window showing the view to the view's height, keeping the window's top edge,
+/// whenever the view gets shorter.
 ///
-/// AppKit keeps a window's bottom-left corner when it resizes the window, so when the menu's
-/// content gets shorter (switching the calendar from List to Month, a problem clearing) the
-/// menu would stay put at the bottom and hang below a gap under the menu bar. Putting the
-/// top edge back keeps it attached to the menu bar, where `MenuBarExtra` opened it.
+/// `MenuBarExtra`'s window grows with its content and keeps its top edge under the menu bar
+/// while doing so, but it never shrinks while open: shorter content (the calendar switched from
+/// List to Month, a problem clearing) is centered in the taller window, so the menu hangs below
+/// a gap under the menu bar. On the layout pass that lays the shorter content out, this view
+/// resizes the window to fit it, keeping the top edge where SwiftUI put it.
 struct WindowTopAnchor: NSViewRepresentable {
     func makeNSView(context: Context) -> TrackingView { TrackingView() }
     func updateNSView(_ view: TrackingView, context: Context) {}
 
     final class TrackingView: NSView {
-        private var observers: [NSObjectProtocol] = []
-        /// The window's frame after the last change that was left alone.
-        private var lastFrame: NSRect = .zero
+        private var isResizing = false
 
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            observers.forEach(NotificationCenter.default.removeObserver)
-            observers = []
-            guard let window else { return }
-            lastFrame = window.frame
-            // Without a queue the blocks run as the notification is posted, on the main thread,
-            // so the window is put back before it is drawn at the wrong place.
-            observers = [
-                NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: window, queue: nil) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.windowDidMove() }
-                },
-                NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: nil) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.windowDidResize() }
-                },
-            ]
-        }
-
-        private func windowDidMove() {
-            guard let window else { return }
-            lastFrame = window.frame
-        }
-
-        private func windowDidResize() {
-            guard let window else { return }
-            let previous = lastFrame
-            lastFrame = window.frame
-            // A resize that moved the origin too placed the window on purpose. One that kept it
-            // is AppKit growing or shrinking the window from its bottom-left corner.
-            guard lastFrame.origin == previous.origin, lastFrame.height != previous.height else { return }
-            window.setFrameOrigin(NSPoint(x: previous.minX, y: previous.maxY - lastFrame.height))
-            lastFrame = window.frame
+        override func layout() {
+            super.layout()
+            guard !isResizing, let window else { return }
+            // The view is the menu's whole content; the window sizes itself to the content's
+            // height rounded up.
+            let height = ceil(bounds.height)
+            let content = window.contentRect(forFrameRect: window.frame)
+            guard height > 0, height < content.height else { return }
+            var shorter = content
+            shorter.origin.y = content.maxY - height
+            shorter.size.height = height
+            isResizing = true
+            window.setFrame(window.frameRect(forContentRect: shorter), display: true)
+            isResizing = false
         }
     }
 }
