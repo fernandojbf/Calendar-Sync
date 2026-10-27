@@ -67,5 +67,6 @@ struct MenuView: View {
         }
         .padding(14)
         .frame(width: settings.menuCalendarEnabled ? 360 : 320)
+        .background(WindowTopAnchor())
     }
 }
