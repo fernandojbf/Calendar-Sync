@@ -114,10 +114,22 @@ final class OutlookWebSource: NSObject, ObservableObject {
         // Outlook ignores the date in the URL and opens the current week, so load that and
         // move on with Outlook's own "next week" button.
         for (index, weekStart) in Self.weekStarts(from: start, to: end).enumerated() {
-            let before = captured.count
+            var before = captured.count
             lastCaptureAt = nil
             if index == 0 {
                 webView.load(URLRequest(url: Self.weekURL(for: weekStart)))
+                // Outlook opens the view last used on the account, not the one in the URL. In
+                // Day or Month view there's no "next week" button, so switch to Week first.
+                switch await ensureWeekView() {
+                case .alreadyWeek: break
+                case .switched:
+                    // What arrived before the switch covers only the old view (e.g. one day).
+                    before = captured.count
+                    lastCaptureAt = nil
+                case .failed:
+                    if isSignInPage(webView.url) { break } // reported below
+                    return .failure("Couldn't switch Outlook to its week view.")
+                }
             } else {
                 // The first week's data arrives before Outlook has finished starting up; a
                 // click that early can move the page without its data ever being requested.
@@ -234,6 +246,40 @@ final class OutlookWebSource: NSObject, ObservableObject {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
         return false
+    }
+
+    private enum WeekViewResult { case alreadyWeek, switched, failed }
+
+    /// Makes sure Outlook shows a week (Week or Work week view), clicking its "Week" view
+    /// button when it opened in another view (Day, Month, ...). Decided from the page, not
+    /// the URL: right after loading, the URL is still the one requested. Clicking also changes
+    /// the view Outlook remembers for the account. Waits up to 30 s in all.
+    private func ensureWeekView() async -> WeekViewResult {
+        let script = """
+        (() => {
+          const labels = [...document.querySelectorAll('button[aria-label]')]
+            .map(b => [b, b.getAttribute('aria-label').trim()]);
+          if (labels.some(([, l]) => /^(go to )?next (work ?)?week\\b/i.test(l))) return 'week';
+          // "Go to today" is there once the calendar has loaded, in every view.
+          if (!labels.some(([, l]) => /^go to today\\b/i.test(l))) return 'loading';
+          const week = labels.find(([, l]) => l.toLowerCase() === 'week');
+          if (!week) return 'no-week-button';
+          week[0].click();
+          return 'clicked';
+        })()
+        """
+        var clicked = false
+        for _ in 0..<30 {
+            if isSignInPage(webView.url) { return .failed }
+            switch (try? await webView.evaluateJavaScript(script) as? String) ?? "loading" {
+            case "week": return clicked ? .switched : .alreadyWeek
+            case "clicked": clicked = true
+            case "no-week-button": return .failed
+            default: break
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        return .failed
     }
 
     private func isSignInPage(_ url: URL?) -> Bool {
