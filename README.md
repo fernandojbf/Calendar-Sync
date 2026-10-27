@@ -30,12 +30,20 @@ A tiny macOS menu bar app that copies meetings from your client calendars into y
 
 With [Homebrew](https://brew.sh/)
 
+To install:
 ```bash
 brew install neteinstein/tap/calendar-sync
-open "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app"
-or
-brew services start neteinstein/tap/calendar-sync - Starts this at startup always
 ```
+
+To run, one time:
+```bash
+open "$(brew --prefix)/opt/calendar-sync/Calendar Sync.app"
+```
+or to always have it run at startup:
+```bash
+brew services start neteinstein/tap/calendar-sync 
+```
+
 
 The first time it runs, the app links itself into your own Applications folder (`~/Applications`), so Finder and the Dock can open it. The link follows upgrades.
 
