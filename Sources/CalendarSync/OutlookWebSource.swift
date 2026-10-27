@@ -15,12 +15,13 @@ import WebKit
 ///
 /// To Outlook this is a Safari session: the web view runs the WebKit of the Safari installed
 /// on this Mac and reports its user agent, with its own cookie store, so it is one more
-/// browser signed in to the account.
+/// browser signed in to the account. Microsoft's sign-in pages see a plain web view instead,
+/// so they don't offer a security key, which the web view can't use (see `webViewUserAgent`).
 ///
 /// EXPERIMENTAL: this depends on how Outlook on the web loads its data, which Microsoft can
 /// change at any time. If a sync can't find calendar data, the copies are left untouched.
 @MainActor
-final class OutlookWebSource: NSObject, ObservableObject {
+final class OutlookWebSource: NSObject, ObservableObject, WKNavigationDelegate {
     /// Change if the client uses a different Outlook host (e.g. outlook.office365.com).
     static let host = "https://outlook.office.com"
 
@@ -33,6 +34,7 @@ final class OutlookWebSource: NSObject, ObservableObject {
     /// On a clock that setting the time doesn't move, like the waits that use it.
     private var lastCaptureAt: ContinuousClock.Instant?
     private var isFetching = false
+    private let safariUserAgent: String
 
     init(sourceID: UUID) {
         self.sourceID = sourceID
@@ -43,11 +45,15 @@ final class OutlookWebSource: NSObject, ObservableObject {
         config.websiteDataStore = WKWebsiteDataStore(forIdentifier: sourceID)
         config.userContentController.addUserScript(
             WKUserScript(source: Self.captureScript, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        config.userContentController.addUserScript(
+            WKUserScript(source: Self.hideWebAuthnScript, injectionTime: .atDocumentStart, forMainFrameOnly: false))
 
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 860), configuration: config)
-        webView.customUserAgent = Self.safariUserAgent()
+        safariUserAgent = Self.safariUserAgent()
+        webView.customUserAgent = safariUserAgent
         super.init()
         webView.configuration.userContentController.add(WeakMessageHandler(self), name: "calsync")
+        webView.navigationDelegate = self
     }
 
     /// The user agent of the Safari installed on this Mac, whose WebKit is the one the web view
@@ -57,9 +63,16 @@ final class OutlookWebSource: NSObject, ObservableObject {
     static func safariUserAgent() -> String {
         let version = Bundle(path: "/Applications/Safari.app")?
             .object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) "
-            + "Version/\(version ?? "26.0") Safari/605.1.15"
+        return "\(webViewUserAgent) Version/\(version ?? "26.0") Safari/605.1.15"
     }
+
+    /// WKWebView's own user agent, which names no browser: what the sign-in pages get.
+    /// Microsoft's sign-in offers a security key (FIDO2, e.g. a YubiKey) to anything that calls
+    /// itself a browser, and WebKit only lets browsers Apple has approved use one, so in this
+    /// window the key fails every time and the sign-in goes round in circles. Seen as a plain
+    /// web view, the sign-in offers the other methods instead.
+    static let webViewUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
 
     /// Releases the web view so its stored sign-in can be deleted.
     func tearDown() {
@@ -283,9 +296,40 @@ final class OutlookWebSource: NSObject, ObservableObject {
     }
 
     private func isSignInPage(_ url: URL?) -> Bool {
-        guard let host = url?.host?.lowercased() else { return false }
-        return host.contains("login.microsoftonline.com") || host.contains("login.live.com")
-            || host.contains("login.microsoft.com")
+        url.map(Self.isSignInHost) ?? false
+    }
+
+    /// Microsoft's sign-in hosts: work and personal accounts, and the security key page.
+    static func isSignInHost(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return ["login.microsoftonline.com", "login.microsoft.com", "login.live.com"]
+            .contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    // MARK: - Navigation
+
+    /// Gives the sign-in pages WebKit's own user agent and everything else Safari's (see
+    /// `webViewUserAgent`), switching on the way in and out. A navigation already under way,
+    /// like a redirect, keeps the headers it started with, so one that needs the other user
+    /// agent is started over. Not a form post: started over it would lose its body, and it
+    /// takes the new user agent up anyway. Only the window's own page: Outlook renews its
+    /// sign-in in frames that aren't shown, and those stay as Outlook made them.
+    func webView(
+        _ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard action.targetFrame?.isMainFrame == true, let url = action.request.url else {
+            return decisionHandler(.allow)
+        }
+        let agent = Self.isSignInHost(url) ? Self.webViewUserAgent : safariUserAgent
+        guard webView.customUserAgent != agent else { return decisionHandler(.allow) }
+        webView.customUserAgent = agent
+        if action.request.httpMethod?.uppercased() == "POST" {
+            decisionHandler(.allow)
+        } else {
+            decisionHandler(.cancel)
+            webView.load(action.request)
+        }
     }
 
     fileprivate func receive(_ message: WKScriptMessage) {
@@ -471,6 +515,15 @@ final class OutlookWebSource: NSObject, ObservableObject {
     static let detailsScript = #"""
     const api = window.__calsync;
     return api ? await api.loadItems(ids) : [];
+    """#
+
+    /// Takes the WebAuthn API out of every page. The web view has it but can't use it (see
+    /// `webViewUserAgent`), and a sign-in page that looks for it before offering a security key
+    /// or passkey then offers its other methods instead. Microsoft's goes by the user agent.
+    static let hideWebAuthnScript = #"""
+    (function () {
+      try { delete window.PublicKeyCredential; } catch (e) {}
+    })();
     """#
 }
 
