@@ -14,6 +14,7 @@ struct CalendarSyncApp: App {
 
     init() {
         Self.quitIfAlreadyRunning()
+        Self.linkIntoApplicationsOnce()
         let settings = SettingsStore()
         let controller = SyncController(settings: settings)
         _settings = StateObject(wrappedValue: settings)
@@ -37,6 +38,32 @@ struct CalendarSyncApp: App {
             instanceLock = lock
         } catch {
             NSLog("Calendar Sync couldn't check for another running copy, so it runs anyway: \(error)")
+        }
+    }
+
+    /// A Homebrew install links itself into ~/Applications, through the opt path so the link
+    /// follows upgrades. Skipped when /Applications already has the app, say a link an admin
+    /// made. Only once: a link the user removes stays removed. If it fails, the next launch
+    /// tries again.
+    private static func linkIntoApplicationsOnce() {
+        let defaults = UserDefaults.standard
+        let key = "linkedIntoApplications"
+        let fileManager = FileManager.default
+        guard !defaults.bool(forKey: key),
+              let target = ApplicationsLink.homebrewOptBundle(
+                  forResolvedBundle: Bundle.main.bundleURL.resolvingSymlinksInPath()
+              ),
+              fileManager.fileExists(atPath: target.path)
+        else { return }
+        let home = fileManager.urls(for: .applicationDirectory, in: .userDomainMask)[0]
+        let system = fileManager.urls(for: .applicationDirectory, in: .localDomainMask)[0]
+        do {
+            if try ApplicationsLink.ensure(linkTo: target, in: home, unlessIn: [system]) == .created {
+                NSLog("Calendar Sync linked itself into \(home.path).")
+            }
+            defaults.set(true, forKey: key)
+        } catch {
+            NSLog("Calendar Sync couldn't link itself into \(home.path): \(error)")
         }
     }
 
