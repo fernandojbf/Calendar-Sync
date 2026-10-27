@@ -8,13 +8,13 @@
 
 A tiny macOS menu bar app that copies meetings from your client calendars into your main calendar, so colleagues stop booking you over your client standup.
 
-[![Version 1.1.3](https://img.shields.io/badge/version-1.1.3-2563EB)](Support/Info.plist)
+[![Version 1.1.5](https://img.shields.io/badge/version-1.1.5-2563EB)](Support/Info.plist)
 [![Build](https://github.com/neteinstein/Calendar-Sync/actions/workflows/build.yml/badge.svg)](https://github.com/neteinstein/Calendar-Sync/actions/workflows/build.yml)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple&logoColor=white)
 ![Swift 5.9](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)
 ![Menu bar app](https://img.shields.io/badge/lives%20in-the%20menu%20bar-14B8A6)
 [![Homebrew tap](https://img.shields.io/badge/homebrew-neteinstein%2Ftap-FBB040?logo=homebrew&logoColor=white)](https://github.com/neteinstein/homebrew-tap)
-[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-8B5CF6)](LICENSE.md)
+[![License: Sustainable Use 1.0](https://img.shields.io/badge/license-Sustainable%20Use%201.0-8B5CF6)](LICENSE.md)
 
 <a href="https://github.com/neteinstein/Calendar-Sync/raw/main/docs/calendar-sync.mp4">
   <img src="docs/demo.webp" width="860" alt="Calendar Sync demo: client meetings are copied into the main calendar as [Calendar A] meeting name, with the Teams link">
@@ -214,9 +214,9 @@ The tests cover the sync rules: titles, meeting links, details, moves, deletes, 
 
 ## License
 
-Calendar Sync is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). You can use, change and share it for any **noncommercial** purpose, including personal use, research, and use by charities, schools and public bodies. Commercial use needs a separate licence from the author.
+Calendar Sync is source-available under the [Sustainable Use License 1.0](LICENSE.md) (SPDX `SUL-1.0`). You can use and change it for free, for personal use or at work, **including commercially** for your own business. You can share it, with or without your changes, as long as you do so for free and for noncommercial purposes. Selling it, building a product or service from it, or including it in one needs a separate licence from the author.
 
-Required Notice: Copyright (c) 2026 Pedro Vicente (https://github.com/neteinstein)
+Copyright (c) 2026 Pedro Vicente (https://github.com/neteinstein)
 
 <div align="center">
 <br>
