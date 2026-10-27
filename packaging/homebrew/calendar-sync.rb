@@ -58,8 +58,12 @@ class CalendarSync < Formula
       untrusted tap, run this from your account first:
         brew trust --formula neteinstein/tap/calendar-sync
 
-      brew upgrade doesn't restart the running app. Do that with:
+      brew upgrade doesn't restart a running Calendar Sync: it keeps
+      running the old version until it quits. If you started it with
+      brew services, restart it with:
         brew services restart calendar-sync
+      If you opened it yourself, quit it and open the new version with:
+        pkill -x CalendarSync; sleep 1; open "#{opt_prefix}/Calendar Sync.app"
 
       The build is ad-hoc signed, so macOS asks for calendar access again
       after each upgrade. Your settings are kept.
