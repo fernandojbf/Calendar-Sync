@@ -64,6 +64,9 @@ private struct GeneralTab: View {
                         Text("Monday").tag(MenuCalendarOptions.WeekStart.monday)
                     }
                     Toggle("Show weekends in the month view", isOn: $settings.menuCalendar.showsWeekends)
+                    Toggle("Shade all-day events", isOn: $settings.menuCalendar.shadesAllDay)
+                    Toggle("Color events by the calendar they came from", isOn: $settings.menuCalendar.colorsByCalendar)
+                    Toggle("Show mornings and afternoons as colored blocks", isOn: $settings.menuCalendar.shadesTimeOfDay)
                 }
             } footer: {
                 Text("The menu bar button opens a month view — click a day for its events — or a scrolling list of your main calendar's events, and the menu bar icon shows today's date, with the week day, the moon phase and the time next to it when those are on.")

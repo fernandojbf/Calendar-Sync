@@ -157,9 +157,7 @@ struct MenuCalendarView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(dayEvents, id: \.key) { event in
-                            EventRow(event: event)
-                        }
+                        eventRows(dayEvents)
                     }
                 }
                 .frame(maxHeight: 240)
@@ -177,7 +175,7 @@ struct MenuCalendarView: View {
         let anchor = sections.flatMap(\.events).first { $0.end >= now }?.key
         return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 2) {
                     if sections.isEmpty {
                         Text("No events")
                             .foregroundStyle(.secondary)
@@ -188,10 +186,7 @@ struct MenuCalendarView: View {
                             .font(.caption.bold())
                             .foregroundStyle(section.day < calendar.startOfDay(for: now) ? .tertiary : .secondary)
                             .padding(.top, 8)
-                        ForEach(section.events, id: \.key) { event in
-                            EventRow(event: event)
-                                .id(event.key)
-                        }
+                        eventRows(section.events)
                     }
                 }
             }
@@ -200,6 +195,59 @@ struct MenuCalendarView: View {
                 if let anchor { proxy.scrollTo(anchor, anchor: .top) }
             }
         }
+    }
+
+    // MARK: - Event rows
+
+    /// One day's events: all-day ones first, then the morning and afternoon ones, each in a
+    /// colored block when that's on. Rows carry their key as id for the list's scrolling.
+    @ViewBuilder
+    private func eventRows(_ dayEvents: [SourceEvent]) -> some View {
+        let options = settings.menuCalendar
+        let parts = MenuCalendar.parts(of: dayEvents, calendar: calendar)
+        ForEach(parts.allDay, id: \.key) { row($0) }
+        if options.shadesTimeOfDay {
+            timeOfDayBlock("Morning", parts.morning, color: .orange)
+            timeOfDayBlock("Afternoon", parts.afternoon, color: .indigo)
+        } else {
+            ForEach(parts.morning + parts.afternoon, id: \.key) { row($0) }
+        }
+    }
+
+    @ViewBuilder
+    private func timeOfDayBlock(_ title: String, _ blockEvents: [SourceEvent], color: Color) -> some View {
+        if !blockEvents.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.caption2).foregroundStyle(.secondary)
+                ForEach(blockEvents, id: \.key) { row($0) }
+            }
+            .padding(4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func row(_ event: SourceEvent) -> some View {
+        EventRow(event: event, tint: originColor(of: event), shadesAllDay: settings.menuCalendar.shadesAllDay)
+            .id(event.key)
+    }
+
+    /// Soft colors for client calendars without one of their own (Outlook on the web).
+    private static let fallbackColors: [Color] = [.teal, .orange, .pink, .purple, .green, .blue]
+
+    /// The color of the calendar an event was copied from: its Calendar.app color when it has
+    /// one, else one of the fallback colors. The main calendar's own events use its color.
+    private func originColor(of event: SourceEvent) -> Color? {
+        guard settings.menuCalendar.colorsByCalendar else { return nil }
+        guard let originID = MenuCalendar.originID(of: event) else {
+            return controller.eventKit.calendar(id: settings.targetCalendarID).map { Color(cgColor: $0.cgColor) }
+        }
+        guard let index = settings.sources.firstIndex(where: { $0.id == originID }) else { return nil }
+        if case .eventKit(let calendarID) = settings.sources[index].kind,
+           let source = controller.eventKit.calendar(id: calendarID) {
+            return Color(cgColor: source.cgColor)
+        }
+        return Self.fallbackColors[index % Self.fallbackColors.count]
     }
 
     private func sectionTitle(_ day: Date) -> String {
@@ -211,9 +259,12 @@ struct MenuCalendarView: View {
 }
 
 /// One event line: time, title, location, and a join button when there's a link.
-/// Events already over are dimmed.
+/// Events already over are dimmed. Tinted with the color of the calendar it came from, if
+/// given; all-day events get a stronger background when `shadesAllDay` is on.
 private struct EventRow: View {
     let event: SourceEvent
+    var tint: Color?
+    var shadesAllDay = false
 
     var body: some View {
         let isPast = event.end < Date()
@@ -242,6 +293,19 @@ private struct EventRow: View {
                 .help("Join the call")
             }
         }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(background, in: RoundedRectangle(cornerRadius: 5))
+        .overlay(alignment: .leading) {
+            if let tint {
+                Capsule().fill(tint).frame(width: 3).padding(.vertical, 3)
+            }
+        }
         .opacity(isPast ? 0.4 : 1)
+    }
+
+    private var background: Color {
+        let shaded = event.isAllDay && shadesAllDay
+        return (tint ?? .secondary).opacity(shaded ? 0.25 : tint == nil ? 0 : 0.1)
     }
 }

@@ -54,4 +54,32 @@ public enum MenuCalendar {
             DaySection(day: day, events: byDay[day]!.sorted { ($0.start, $0.title) < ($1.start, $1.title) })
         }
     }
+
+    /// One day's events split for the event lists: all-day events first, then the timed ones
+    /// starting before noon, then the rest. Each part keeps its order.
+    public struct DayParts: Hashable, Sendable {
+        public var allDay: [SourceEvent] = []
+        public var morning: [SourceEvent] = []
+        public var afternoon: [SourceEvent] = []
+    }
+
+    public static func parts(of events: [SourceEvent], calendar: Calendar) -> DayParts {
+        var parts = DayParts()
+        for event in events {
+            if event.isAllDay {
+                parts.allDay.append(event)
+            } else if calendar.component(.hour, from: event.start) < 12 {
+                parts.morning.append(event)
+            } else {
+                parts.afternoon.append(event)
+            }
+        }
+        return parts
+    }
+
+    /// The client calendar an event in the main calendar was copied from, or nil for the main
+    /// calendar's own events.
+    public static func originID(of event: SourceEvent) -> UUID? {
+        CopyMarker.find(in: event.notes)?.sourceID
+    }
 }

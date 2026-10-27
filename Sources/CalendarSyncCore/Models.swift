@@ -131,7 +131,7 @@ public struct MenuBarOptions: Codable, Hashable, Sendable {
     }
 }
 
-/// How the menu's month view lays out a week.
+/// How the menu's month view lays out a week, and how its event lists are colored.
 public struct MenuCalendarOptions: Codable, Hashable, Sendable {
     public enum WeekStart: String, Codable, CaseIterable, Sendable {
         /// Whatever macOS uses for the current region.
@@ -140,10 +140,20 @@ public struct MenuCalendarOptions: Codable, Hashable, Sendable {
 
     public var weekStart: WeekStart
     public var showsWeekends: Bool
+    /// All-day events get a stronger background than timed ones.
+    public var shadesAllDay: Bool
+    /// Each event is tinted with the color of the calendar it was copied from.
+    public var colorsByCalendar: Bool
+    /// A day's morning and afternoon events sit in blocks of their own color.
+    public var shadesTimeOfDay: Bool
 
-    public init(weekStart: WeekStart = .system, showsWeekends: Bool = true) {
+    public init(weekStart: WeekStart = .system, showsWeekends: Bool = true, shadesAllDay: Bool = true,
+                colorsByCalendar: Bool = true, shadesTimeOfDay: Bool = true) {
         self.weekStart = weekStart
         self.showsWeekends = showsWeekends
+        self.shadesAllDay = shadesAllDay
+        self.colorsByCalendar = colorsByCalendar
+        self.shadesTimeOfDay = shadesTimeOfDay
     }
 
     // Settings saved by older versions don't have every key yet.
@@ -151,6 +161,9 @@ public struct MenuCalendarOptions: Codable, Hashable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         weekStart = try c.decodeIfPresent(WeekStart.self, forKey: .weekStart) ?? .system
         showsWeekends = try c.decodeIfPresent(Bool.self, forKey: .showsWeekends) ?? true
+        shadesAllDay = try c.decodeIfPresent(Bool.self, forKey: .shadesAllDay) ?? true
+        colorsByCalendar = try c.decodeIfPresent(Bool.self, forKey: .colorsByCalendar) ?? true
+        shadesTimeOfDay = try c.decodeIfPresent(Bool.self, forKey: .shadesTimeOfDay) ?? true
     }
 
     /// `calendar` with its first weekday set to the chosen one.

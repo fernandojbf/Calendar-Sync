@@ -69,7 +69,32 @@ final class MenuCalendarTests: XCTestCase {
 
     func testOptionsFromOlderSettings() throws {
         let options = try JSONDecoder().decode(MenuCalendarOptions.self, from: Data("{}".utf8))
-        XCTAssertEqual(options, MenuCalendarOptions(weekStart: .system, showsWeekends: true))
+        XCTAssertEqual(options, MenuCalendarOptions(weekStart: .system, showsWeekends: true, shadesAllDay: true,
+                                                    colorsByCalendar: true, shadesTimeOfDay: true))
+    }
+
+    func testPartsSplitAllDayMorningAndAfternoon() {
+        let events = [
+            SourceEvent(key: "all", title: "Holiday", start: date(2026, 10, 24), end: date(2026, 10, 25), isAllDay: true),
+            SourceEvent(key: "am", title: "Standup", start: date(2026, 10, 24, hour: 9), end: date(2026, 10, 24, hour: 10)),
+            SourceEvent(key: "late-am", title: "Review", start: date(2026, 10, 24, hour: 11), end: date(2026, 10, 24, hour: 13)),
+            SourceEvent(key: "noon", title: "Lunch", start: date(2026, 10, 24, hour: 12), end: date(2026, 10, 24, hour: 13)),
+            SourceEvent(key: "pm", title: "Retro", start: date(2026, 10, 24, hour: 16), end: date(2026, 10, 24, hour: 17)),
+        ]
+        let parts = MenuCalendar.parts(of: events, calendar: utc)
+        XCTAssertEqual(parts.allDay.map(\.key), ["all"])
+        XCTAssertEqual(parts.morning.map(\.key), ["am", "late-am"], "by start time, even when it runs past noon")
+        XCTAssertEqual(parts.afternoon.map(\.key), ["noon", "pm"])
+    }
+
+    func testOriginOfACopyAndOfAnOwnEvent() {
+        let sourceID = UUID()
+        let marker = CopyMarker(sourceID: sourceID, key: "abc").encoded
+        let copy = SourceEvent(key: "c", title: "[A] Standup", start: date(2026, 10, 24, hour: 9),
+                               end: date(2026, 10, 24, hour: 10), notes: "Agenda\n\n\(marker)")
+        let own = SourceEvent(key: "o", title: "Dentist", start: date(2026, 10, 24, hour: 9), end: date(2026, 10, 24, hour: 10))
+        XCTAssertEqual(MenuCalendar.originID(of: copy), sourceID)
+        XCTAssertNil(MenuCalendar.originID(of: own))
     }
 
     func testSectionsGroupByDaySoonestFirst() {
