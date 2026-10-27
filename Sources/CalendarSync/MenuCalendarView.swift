@@ -17,7 +17,8 @@ struct MenuCalendarView: View {
         case month, list
     }
 
-    private var calendar: Calendar { Calendar.current }
+    private var calendar: Calendar { settings.menuCalendar.applied(to: .current) }
+    private var showsWeekends: Bool { settings.menuCalendar.showsWeekends }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -42,6 +43,7 @@ struct MenuCalendarView: View {
         .onAppear { reload() }
         .onChange(of: mode) { _, _ in reload() }
         .onChange(of: shownMonth) { _, _ in reload() }
+        .onChange(of: settings.menuCalendar) { _, _ in reload() }
         .onChange(of: controller.lastSync) { _, _ in reload() }
     }
 
@@ -56,7 +58,7 @@ struct MenuCalendarView: View {
         let (from, to): (Date, Date)
         switch mode {
         case .month:
-            let days = MenuCalendar.gridDays(for: shownMonth, calendar: calendar)
+            let days = MenuCalendar.gridDays(for: shownMonth, calendar: calendar, showsWeekends: showsWeekends)
             guard let first = days.first, let last = days.last,
                   let end = calendar.date(byAdding: .day, value: 1, to: last) else { return }
             (from, to) = (first, end)
@@ -93,24 +95,20 @@ struct MenuCalendarView: View {
             }
             .buttonStyle(.borderless)
 
-            let days = MenuCalendar.gridDays(for: shownMonth, calendar: calendar)
+            let days = MenuCalendar.gridDays(for: shownMonth, calendar: calendar, showsWeekends: showsWeekends)
             let busyDays = Set(events.map { calendar.startOfDay(for: $0.start) })
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
-                ForEach(weekdaySymbols, id: \.self) { symbol in
-                    Text(symbol).font(.caption2).foregroundStyle(.secondary)
+            let weekdays = MenuCalendar.weekdays(calendar: calendar, showsWeekends: showsWeekends)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: weekdays.count), spacing: 2) {
+                // By weekday: the very short symbols repeat (two "T"s, two "S"s).
+                ForEach(weekdays, id: \.self) { weekday in
+                    Text(calendar.veryShortStandaloneWeekdaySymbols[weekday - 1])
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
                 ForEach(days, id: \.self) { day in
                     dayCell(day, hasEvents: busyDays.contains(calendar.startOfDay(for: day)))
                 }
             }
         }
-    }
-
-    /// Weekday initials starting on the calendar's first weekday.
-    private var weekdaySymbols: [String] {
-        let symbols = calendar.veryShortStandaloneWeekdaySymbols
-        let first = calendar.firstWeekday - 1
-        return Array(symbols[first...] + symbols[..<first])
     }
 
     private func dayCell(_ day: Date, hasEvents: Bool) -> some View {
@@ -159,9 +157,7 @@ struct MenuCalendarView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(dayEvents, id: \.key) { event in
-                            EventRow(event: event)
-                        }
+                        eventRows(dayEvents)
                     }
                 }
                 .frame(maxHeight: 240)
@@ -179,7 +175,7 @@ struct MenuCalendarView: View {
         let anchor = sections.flatMap(\.events).first { $0.end >= now }?.key
         return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 2) {
                     if sections.isEmpty {
                         Text("No events")
                             .foregroundStyle(.secondary)
@@ -190,10 +186,7 @@ struct MenuCalendarView: View {
                             .font(.caption.bold())
                             .foregroundStyle(section.day < calendar.startOfDay(for: now) ? .tertiary : .secondary)
                             .padding(.top, 8)
-                        ForEach(section.events, id: \.key) { event in
-                            EventRow(event: event)
-                                .id(event.key)
-                        }
+                        eventRows(section.events)
                     }
                 }
             }
@@ -202,6 +195,59 @@ struct MenuCalendarView: View {
                 if let anchor { proxy.scrollTo(anchor, anchor: .top) }
             }
         }
+    }
+
+    // MARK: - Event rows
+
+    /// One day's events: all-day ones first, then the morning and afternoon ones, each in a
+    /// colored block when that's on. Rows carry their key as id for the list's scrolling.
+    @ViewBuilder
+    private func eventRows(_ dayEvents: [SourceEvent]) -> some View {
+        let options = settings.menuCalendar
+        let parts = MenuCalendar.parts(of: dayEvents, calendar: calendar)
+        ForEach(parts.allDay, id: \.key) { row($0) }
+        if options.shadesTimeOfDay {
+            timeOfDayBlock("Morning", parts.morning, color: .orange)
+            timeOfDayBlock("Afternoon", parts.afternoon, color: .indigo)
+        } else {
+            ForEach(parts.morning + parts.afternoon, id: \.key) { row($0) }
+        }
+    }
+
+    @ViewBuilder
+    private func timeOfDayBlock(_ title: String, _ blockEvents: [SourceEvent], color: Color) -> some View {
+        if !blockEvents.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.caption2).foregroundStyle(.secondary)
+                ForEach(blockEvents, id: \.key) { row($0) }
+            }
+            .padding(4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func row(_ event: SourceEvent) -> some View {
+        EventRow(event: event, tint: originColor(of: event), shadesAllDay: settings.menuCalendar.shadesAllDay)
+            .id(event.key)
+    }
+
+    /// Soft colors for client calendars without one of their own (Outlook on the web).
+    private static let fallbackColors: [Color] = [.teal, .orange, .pink, .purple, .green, .blue]
+
+    /// The color of the calendar an event was copied from: its Calendar.app color when it has
+    /// one, else one of the fallback colors. The main calendar's own events use its color.
+    private func originColor(of event: SourceEvent) -> Color? {
+        guard settings.menuCalendar.colorsByCalendar else { return nil }
+        guard let originID = MenuCalendar.originID(of: event) else {
+            return controller.eventKit.calendar(id: settings.targetCalendarID).map { Color(cgColor: $0.cgColor) }
+        }
+        guard let index = settings.sources.firstIndex(where: { $0.id == originID }) else { return nil }
+        if case .eventKit(let calendarID) = settings.sources[index].kind,
+           let source = controller.eventKit.calendar(id: calendarID) {
+            return Color(cgColor: source.cgColor)
+        }
+        return Self.fallbackColors[index % Self.fallbackColors.count]
     }
 
     private func sectionTitle(_ day: Date) -> String {
@@ -213,9 +259,12 @@ struct MenuCalendarView: View {
 }
 
 /// One event line: time, title, location, and a join button when there's a link.
-/// Events already over are dimmed.
+/// Events already over are dimmed. Tinted with the color of the calendar it came from, if
+/// given; all-day events get a stronger background when `shadesAllDay` is on.
 private struct EventRow: View {
     let event: SourceEvent
+    var tint: Color?
+    var shadesAllDay = false
 
     var body: some View {
         let isPast = event.end < Date()
@@ -244,6 +293,19 @@ private struct EventRow: View {
                 .help("Join the call")
             }
         }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(background, in: RoundedRectangle(cornerRadius: 5))
+        .overlay(alignment: .leading) {
+            if let tint {
+                Capsule().fill(tint).frame(width: 3).padding(.vertical, 3)
+            }
+        }
         .opacity(isPast ? 0.4 : 1)
+    }
+
+    private var background: Color {
+        let shaded = event.isAllDay && shadesAllDay
+        return (tint ?? .secondary).opacity(shaded ? 0.25 : tint == nil ? 0 : 0.1)
     }
 }

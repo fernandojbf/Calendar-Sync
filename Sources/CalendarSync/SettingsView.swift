@@ -58,6 +58,15 @@ private struct GeneralTab: View {
                     Toggle("Show the week day in the menu bar", isOn: $settings.menuBar.showsWeekday)
                     Toggle("Show the moon phase in the menu bar", isOn: $settings.menuBar.showsMoonPhase)
                     Toggle("Show the time in the menu bar", isOn: $settings.menuBar.showsTime)
+                    Picker("Week starts on", selection: $settings.menuCalendar.weekStart) {
+                        Text("Same as macOS").tag(MenuCalendarOptions.WeekStart.system)
+                        Text("Sunday").tag(MenuCalendarOptions.WeekStart.sunday)
+                        Text("Monday").tag(MenuCalendarOptions.WeekStart.monday)
+                    }
+                    Toggle("Show weekends in the month view", isOn: $settings.menuCalendar.showsWeekends)
+                    Toggle("Shade all-day events", isOn: $settings.menuCalendar.shadesAllDay)
+                    Toggle("Color events by the calendar they came from", isOn: $settings.menuCalendar.colorsByCalendar)
+                    Toggle("Show mornings and afternoons as colored blocks", isOn: $settings.menuCalendar.shadesTimeOfDay)
                 }
             } footer: {
                 Text("The menu bar button opens a month view — click a day for its events — or a scrolling list of your main calendar's events, and the menu bar icon shows today's date, with the week day, the moon phase and the time next to it when those are on.")

@@ -8,7 +8,7 @@
 
 A tiny macOS menu bar app that copies meetings from your client calendars into your main calendar, so colleagues stop booking you over your client standup.
 
-[![Version 1.1.7](https://img.shields.io/badge/version-1.1.7-2563EB)](Support/Info.plist)
+[![Version 1.1.9](https://img.shields.io/badge/version-1.1.9-2563EB)](Support/Info.plist)
 [![Build](https://github.com/neteinstein/Calendar-Sync/actions/workflows/build.yml/badge.svg)](https://github.com/neteinstein/Calendar-Sync/actions/workflows/build.yml)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple&logoColor=white)
 ![Swift 5.9](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)
@@ -114,7 +114,7 @@ It also lets you **skip meetings you declined**, **skip all-day events** and **s
 
 Never miss a start: turn on the optional **full-screen alert** and the screen is covered when a main-calendar meeting begins (or up to 15 minutes before), with buttons to **Join call** (⏎), **Go to** the room, or **Ignore** (⎋). Meetings copied from client calendars alert too, join link included, and each meeting alerts once.
 
-Prefer the menu bar? Turn on **Show a calendar in the menu** and the icon gains **today's date** — add the **week day**, the **moon phase** and the **time** next to it if you like — while clicking it opens a **month view** (click a day for its events) or a **scrolling list** of your main calendar's events — it opens at the next event, and scrolling back shows past events dimmed. Events with a meeting link get a join button right in the list.
+Prefer the menu bar? Turn on **Show a calendar in the menu** and the icon gains **today's date** — add the **week day**, the **moon phase** and the **time** next to it if you like — while clicking it opens a **month view** (click a day for its events; start the week on **Sunday or Monday** and hide **weekends** if you like) or a **scrolling list** of your main calendar's events — it opens at the next event, and scrolling back shows past events dimmed. Events with a meeting link get a join button right in the list. The lists tint each event with the **color of the calendar it came from**, shade **all-day events**, and group each day's **morning** and **afternoon** into colored blocks — each of these can be turned off.
 
 Settings also shows the app **version** and checks GitHub once a day for a newer one (the newest release, or the version on `main` while there are no releases). When there is one, a warning appears with an **Update** button that shows the pull-and-rebuild instructions.
 

@@ -131,6 +131,53 @@ public struct MenuBarOptions: Codable, Hashable, Sendable {
     }
 }
 
+/// How the menu's month view lays out a week, and how its event lists are colored.
+public struct MenuCalendarOptions: Codable, Hashable, Sendable {
+    public enum WeekStart: String, Codable, CaseIterable, Sendable {
+        /// Whatever macOS uses for the current region.
+        case system, sunday, monday
+    }
+
+    public var weekStart: WeekStart
+    public var showsWeekends: Bool
+    /// All-day events get a stronger background than timed ones.
+    public var shadesAllDay: Bool
+    /// Each event is tinted with the color of the calendar it was copied from.
+    public var colorsByCalendar: Bool
+    /// A day's morning and afternoon events sit in blocks of their own color.
+    public var shadesTimeOfDay: Bool
+
+    public init(weekStart: WeekStart = .system, showsWeekends: Bool = true, shadesAllDay: Bool = true,
+                colorsByCalendar: Bool = true, shadesTimeOfDay: Bool = true) {
+        self.weekStart = weekStart
+        self.showsWeekends = showsWeekends
+        self.shadesAllDay = shadesAllDay
+        self.colorsByCalendar = colorsByCalendar
+        self.shadesTimeOfDay = shadesTimeOfDay
+    }
+
+    // Settings saved by older versions don't have every key yet.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        weekStart = try c.decodeIfPresent(WeekStart.self, forKey: .weekStart) ?? .system
+        showsWeekends = try c.decodeIfPresent(Bool.self, forKey: .showsWeekends) ?? true
+        shadesAllDay = try c.decodeIfPresent(Bool.self, forKey: .shadesAllDay) ?? true
+        colorsByCalendar = try c.decodeIfPresent(Bool.self, forKey: .colorsByCalendar) ?? true
+        shadesTimeOfDay = try c.decodeIfPresent(Bool.self, forKey: .shadesTimeOfDay) ?? true
+    }
+
+    /// `calendar` with its first weekday set to the chosen one.
+    public func applied(to calendar: Calendar) -> Calendar {
+        var calendar = calendar
+        switch weekStart {
+        case .system: break
+        case .sunday: calendar.firstWeekday = 1
+        case .monday: calendar.firstWeekday = 2
+        }
+        return calendar
+    }
+}
+
 /// A single meeting occurrence read from a source, independent of where it came from.
 public struct SourceEvent: Hashable, Sendable {
     /// Stable per occurrence: stays the same when the meeting is moved, so the copy is
